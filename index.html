@@ -422,7 +422,7 @@ const CONFIG = {
   // ถ้าเว้นว่าง = โหมด Demo (ข้อมูลหายเมื่อรีเฟรช)
   // ตัวอย่าง: 'https://script.google.com/macros/s/AKfycbx.../exec'
   apiUrl: (() => {
-    try { return localStorage.getItem('ffc_api_url') || 'https://script.google.com/macros/s/AKfycbzakhJtxrU7LGacPZNLzwJoRY-DlwWBR-ETr64Aw8mFvueIA6vR9pJnMS5E5AFCXSoV/exec'; } catch { return ''; }
+    try { return localStorage.getItem('ffc_api_url') || 'https://script.google.com/macros/s/AKfycbx8RoWFX9rreDIxnm7vOkhFZ0FEuKPIwNQkMFte-c43mX-5fWRWSKOrbaUWJriNpzDt/exec'; } catch { return ''; }
   })(),
 };
 
@@ -1209,7 +1209,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส </span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.5
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.5.1
               </div>
             </div>
           </Card>
@@ -5155,13 +5155,17 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   const monthLeaves = leaves.filter(l => l.employeeId === emp.id && l.status === 'approved' && inRange(toYMD(l.startDate)) && !isSunday(toYMD(l.startDate)));
 
   // ===== รายได้พื้นฐาน =====
+  // นับวันมาทำงานจริง (ทุกประเภทเงินเดือน) — มาทำงาน/สาย/WFH/มาบางส่วน/ไม่สแกนออก
+  // ไม่นับวันอาทิตย์ (กรองออกแล้ว) และไม่นับวันลาเต็มวัน
+  const attendedDays = monthAtt.filter(a => ['ontime','late','wfh','partial','nocheckout'].includes(a.status)).length;
   let baseSalary, workedDays = 0;
   if (salaryType === 'daily') {
-    // รายวัน: นับวันที่มาทำงานจริง (ontime/late/wfh)
-    workedDays = monthAtt.filter(a => ['ontime','late','wfh','partial','nocheckout'].includes(a.status)).length;
+    // รายวัน: จ่ายตามวันที่มาทำงานจริง
+    workedDays = attendedDays;
     baseSalary = perDay * workedDays;
   } else {
     // รายเดือน: ถ้ารอบเต็มเดือน = ฐานเต็ม, ถ้ารอบสั้นกว่า = prorate ตามจำนวนวัน
+    workedDays = attendedDays;
     baseSalary = rangeDays >= 26 ? base : perDay * rangeDays;
   }
 
@@ -5240,6 +5244,7 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
       leaveDetails.push({
         type, label: (leaveTypes.find(t => t.id===type)?.label || type) + periodNote,
         days, deduct, reason, period: l.period || 'full', hours: l.hours || null,
+        date: toYMD(l.startDate), endDate: toYMD(l.endDate),
       });
     }
     leaveDeduct += deduct;
@@ -5251,15 +5256,23 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     leaveDeduct += absentAttFine;
   }
 
+  // รวมวันลาทั้งหมด (เต็มวัน) เพื่อแสดงในสลิป
+  const fullLeaveDates = monthLeaves
+    .filter(l => (l.period || 'full') === 'full' && l.type !== 'wfh' && l.type !== 'offsite')
+    .map(l => toYMD(l.startDate));
+
   return {
     salaryType, perDay, perHour, workedDays,
+    attendedDays,        // วันมาทำงานจริง (ไม่นับอาทิตย์/ลาเต็มวัน)
+    rangeDays,           // วันทำงานทั้งหมดในรอบ (ไม่นับอาทิตย์)
     baseSalary: Math.round(baseSalary * 100) / 100,
     special,
     lateFine: Math.round(lateFine * 100) / 100,
-    lateDetails,
+    lateDetails,         // [{date, minutes, fine}]
     leaveDeduct: Math.round(leaveDeduct * 100) / 100,
-    leaveDetails,
+    leaveDetails,        // [{label, days, deduct, reason, date, ...}]
     absentDays: absentAttDays,
+    fullLeaveDates,
   };
 };
 
@@ -5568,8 +5581,10 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, defaultPe
       // เก็บรายละเอียดไว้แสดงในสลิป
       breakdown: {
         salaryType: r.salaryType, perDay: r.perDay, workedDays: r.workedDays,
+        attendedDays: r.attendedDays, rangeDays: r.rangeDays,
         lateFine: r.lateFine, lateDetails: r.lateDetails,
         leaveDeduct: r.leaveDeduct, leaveDetails: r.leaveDetails,
+        fullLeaveDates: r.fullLeaveDates, absentDays: r.absentDays,
       },
     }));
   };
@@ -5586,7 +5601,7 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, defaultPe
     ['baseSalary', 'เงินเดือนพื้นฐาน'],
     ['overtime', 'ค่าล่วงเวลา (OT)'],
     ['transport', 'ค่าพาหนะ'],
-    ['bonus', 'โบนัส'],
+    ['Lunch', 'ค่าอาหารกลางวัน'],
     ['otherEarn', 'รายได้อื่นๆ'],
   ];
   const deductFields = [
@@ -5756,7 +5771,7 @@ const buildSlipInner = (record, employees, branches, settings) => {
     ['เงินเดือนพื้นฐาน', 'BASIC SALARY', record.baseSalary],
     ['ค่าล่วงเวลา', 'OVERTIME', record.overtime],
     ['ค่าพาหนะ', 'TRANSPORT', record.transport],
-    ['โบนัส', 'BONUS', record.bonus],
+    ['ค่าอาหารกลางวัน', 'Lunch', record.bonus],
     ['รายได้อื่นๆ', 'OTHER', record.otherEarn],
   ].filter(r => Number(r[2]) > 0);
 
@@ -5779,6 +5794,25 @@ const buildSlipInner = (record, employees, branches, settings) => {
       <div><div style="font-size:12px;color:#1E293B">${th}</div><div style="font-size:8px;color:#94A3B8">${en}</div></div>
       <div style="font-size:12px;font-weight:600;${isDeduct?'color:#DC2626':''}">${isDeduct?'-':''}${fmtMoney(val)}</div>
     </div>`;
+
+  // แถบสรุปการมาทำงาน (วันมาทำงาน + รายการวันลา/มาสาย พร้อมวันที่)
+  const dShort = (ymd) => { const d = new Date(ymd + 'T00:00:00'); return isNaN(d) ? ymd : `${d.getDate()}/${d.getMonth()+1}`; };
+  let workSummary = '';
+  if (bd) {
+    const lateList = (bd.lateDetails || []).map(x => dShort(x.date)).join(', ');
+    const leaveList = (bd.leaveDetails || []).filter(d => d.type !== 'absent').map(d => `${dShort(d.date)}${d.label.includes('(')?d.label.slice(d.label.indexOf('(')):''}`).join(', ');
+    const absentList = (bd.leaveDetails || []).filter(d => d.type === 'absent' && d.date).map(d => dShort(d.date)).join(', ');
+    workSummary = `
+      <div style="padding:8px 14px;border-top:1px solid #E2E8F0;background:#F8FAFC">
+        <div style="display:flex;gap:16px;font-size:11px;color:#1E293B;flex-wrap:wrap">
+          <span><strong style="color:#1E3A8A">มาทำงาน:</strong> ${bd.attendedDays ?? '-'} วัน</span>
+          ${bd.rangeDays != null ? `<span><strong>วันทำงานในรอบ:</strong> ${bd.rangeDays} วัน (ไม่นับอาทิตย์)</span>` : ''}
+        </div>
+        ${lateList ? `<div style="font-size:10px;color:#B45309;margin-top:3px">มาสาย (${(bd.lateDetails||[]).length} วัน): ${lateList}</div>` : ''}
+        ${leaveList ? `<div style="font-size:10px;color:#1D4ED8;margin-top:3px">ลางาน: ${leaveList}</div>` : ''}
+        ${absentList ? `<div style="font-size:10px;color:#DC2626;margin-top:3px">ขาดงาน: ${absentList}</div>` : ''}
+      </div>`;
+  }
 
   return `
     <div style="display:flex;align-items:center;gap:12px;padding:14px;border-bottom:2px solid #1E3A8A">
@@ -5813,6 +5847,7 @@ const buildSlipInner = (record, employees, branches, settings) => {
         </div>
       </div>
     </div>
+    ${workSummary}
     <div style="background:#BFDBFE;padding:10px;display:flex;justify-content:space-between;align-items:center;border-top:2px solid #1E3A8A">
       <div><div class="font-display" style="font-size:16px;font-weight:700;color:#1E3A8A">เงินรับสุทธิ</div><div style="font-size:10px;color:#475569">NET PAY</div></div>
       <div class="font-display" style="font-size:24px;font-weight:700;color:#1E3A8A">${fmtMoney(c.net)}</div>
@@ -5884,7 +5919,7 @@ const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
     ['เงินเดือนพื้นฐาน', 'BASIC SALARY', record.baseSalary],
     ['ค่าล่วงเวลา', 'OVERTIME', record.overtime],
     ['ค่าพาหนะ', 'TRANSPORT', record.transport],
-    ['โบนัส', 'BONUS', record.bonus],
+    ['ค่าอาหารกลางวัน', 'Lunch', record.bonus],
     ['รายได้อื่นๆ', 'OTHER', record.otherEarn],
   ].filter(r => Number(r[2]) > 0);
 
@@ -6000,6 +6035,25 @@ const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
               </div>
             </div>
           </div>
+
+          {/* สรุปการมาทำงาน */}
+          {bd && (() => {
+            const dShort = (ymd) => { const d = new Date(ymd + 'T00:00:00'); return isNaN(d) ? ymd : `${d.getDate()}/${d.getMonth()+1}`; };
+            const lateList = (bd.lateDetails || []).map(x => dShort(x.date)).join(', ');
+            const leaveList = (bd.leaveDetails || []).filter(d => d.type !== 'absent').map(d => `${dShort(d.date)}${d.label.includes('(') ? d.label.slice(d.label.indexOf('(')) : ''}`).join(', ');
+            const absentList = (bd.leaveDetails || []).filter(d => d.type === 'absent' && d.date).map(d => dShort(d.date)).join(', ');
+            return (
+              <div style={{ padding: '8px 14px', borderTop: '1px solid #E2E8F0', background: '#F8FAFC' }}>
+                <div style={{ display: 'flex', gap: 16, fontSize: 11, color: '#1E293B', flexWrap: 'wrap' }}>
+                  <span><strong style={{ color: '#1E3A8A' }}>มาทำงาน:</strong> {bd.attendedDays ?? '-'} วัน</span>
+                  {bd.rangeDays != null && <span><strong>วันทำงานในรอบ:</strong> {bd.rangeDays} วัน (ไม่นับอาทิตย์)</span>}
+                </div>
+                {lateList && <div style={{ fontSize: 10, color: '#B45309', marginTop: 3 }}>มาสาย ({(bd.lateDetails||[]).length} วัน): {lateList}</div>}
+                {leaveList && <div style={{ fontSize: 10, color: '#1D4ED8', marginTop: 3 }}>ลางาน: {leaveList}</div>}
+                {absentList && <div style={{ fontSize: 10, color: '#DC2626', marginTop: 3 }}>ขาดงาน: {absentList}</div>}
+              </div>
+            );
+          })()}
 
           {/* Net Pay */}
           <div style={{ background: '#BFDBFE', padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #1E3A8A' }}>
