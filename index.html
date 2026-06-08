@@ -421,7 +421,7 @@ const CONFIG = {
   // วาง Web App URL ของ Google Apps Script ที่นี่
   // ถ้าเว้นว่าง = โหมด Demo (ข้อมูลหายเมื่อรีเฟรช)
   // ตัวอย่าง: 'https://script.google.com/macros/s/AKfycbx.../exec'
-  apiUrl: 'https://script.google.com/macros/s/AKfycbxhdIMRVwo38vnOVKWLJA5YwxFqaYCABaxzyKUZ98sKnE2mF1gXvu2ISPBfFVkwoHw6/exec',
+  apiUrl: 'https://script.google.com/macros/s/AKfycbxFnlqE5pjGp1ZB5u3Z9Oy4ltzrYzfvF04KRRWVSmNF6RSy9pE6RefUSFVr2r095iqY/exec',
 };
 
 /* =============================================================
@@ -5254,6 +5254,7 @@ const PayrollPage = () => {
   const [openForm, setOpenForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [slip, setSlip] = useState(null);
+  const [selected, setSelected] = useState([]);   // id ที่เลือกพิมพ์รวม
 
   const myEmp = employees.find(e => e.id === user.empId);
   const hasPayrollAccess = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
@@ -5308,6 +5309,16 @@ const PayrollPage = () => {
     setPayroll(payroll.filter(p => p.id !== id));
     addToast('success', 'ลบเรียบร้อย');
     if (api.enabled()) api.post('deletePayroll', { id }).catch(() => {});
+  };
+
+  // เลือก/ยกเลิกเลือกพิมพ์
+  const toggleSelect = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const allSelected = monthRecords.length > 0 && selected.length === monthRecords.length;
+  const toggleSelectAll = () => setSelected(allSelected ? [] : monthRecords.map(p => p.id));
+  const printSelected = () => {
+    const recs = monthRecords.filter(p => selected.includes(p.id));
+    if (recs.length === 0) { addToast('error', 'กรุณาเลือกพนักงานที่ต้องการพิมพ์'); return; }
+    printManySlips(recs, employees, branches, settings);
   };
 
   const [my, mm] = month.split('-');
@@ -5371,9 +5382,22 @@ const PayrollPage = () => {
           <Empty icon="tag" title="ยังไม่มีข้อมูลเงินเดือน" desc={`รอบ ${monthLabel} — คลิก "เพิ่มเงินเดือน" เพื่อเริ่มต้น`} />
         ) : (
           <div className="overflow-x-auto">
+            {/* แถบเลือกพิมพ์รวม */}
+            <div className="flex items-center justify-between px-5 py-2.5 bg-flow-50/60 border-b border-flow-100">
+              <div className="text-sm text-ink-600">
+                {selected.length > 0 ? <span className="font-medium text-flow-700">เลือก {selected.length} คน</span> : 'เลือกพนักงานเพื่อพิมพ์สลิปหลายคนพร้อมกัน'}
+              </div>
+              <Button size="sm" icon="download" onClick={printSelected} disabled={selected.length === 0}>
+                พิมพ์สลิป {selected.length > 0 ? `(${selected.length})` : 'ที่เลือก'}
+              </Button>
+            </div>
             <table className="w-full text-sm">
               <thead className="bg-ink-50 text-ink-600 text-left">
                 <tr>
+                  <th className="px-5 py-3 w-10">
+                    <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                      className="rounded border-ink-300 text-flow-600 focus:ring-flow-500 cursor-pointer" />
+                  </th>
                   <th className="px-5 py-3 font-medium">พนักงาน</th>
                   <th className="px-5 py-3 font-medium text-right">รายได้รวม</th>
                   <th className="px-5 py-3 font-medium text-right">รายการหัก</th>
@@ -5386,9 +5410,14 @@ const PayrollPage = () => {
                   const emp = employees.find(e => e.id === p.employeeId);
                   if (!emp) return null;
                   const c = calcPayroll(p);
+                  const isChecked = selected.includes(p.id);
                   return (
-                    <tr key={p.id} className="hover:bg-flow-50/40 transition-colors cursor-pointer" onClick={() => setSlip(p)}>
-                      <td className="px-5 py-3">
+                    <tr key={p.id} className={cls('hover:bg-flow-50/40 transition-colors', isChecked && 'bg-flow-50/50')}>
+                      <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={isChecked} onChange={() => toggleSelect(p.id)}
+                          className="rounded border-ink-300 text-flow-600 focus:ring-flow-500 cursor-pointer" />
+                      </td>
+                      <td className="px-5 py-3 cursor-pointer" onClick={() => setSlip(p)}>
                         <div className="flex items-center gap-3">
                           <Avatar name={`${emp.firstName} ${emp.lastName}`} photo={emp.photo} size="sm" />
                           <div>
@@ -5397,10 +5426,10 @@ const PayrollPage = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3 text-right text-emerald-700">{fmtMoney(c.earnings)}</td>
-                      <td className="px-5 py-3 text-right text-red-600">{fmtMoney(c.deductions)}</td>
-                      <td className="px-5 py-3 text-right font-display font-bold text-ink-900">{fmtMoney(c.net)}</td>
-                      <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-5 py-3 text-right text-emerald-700 cursor-pointer" onClick={() => setSlip(p)}>{fmtMoney(c.earnings)}</td>
+                      <td className="px-5 py-3 text-right text-red-600 cursor-pointer" onClick={() => setSlip(p)}>{fmtMoney(c.deductions)}</td>
+                      <td className="px-5 py-3 text-right font-display font-bold text-ink-900 cursor-pointer" onClick={() => setSlip(p)}>{fmtMoney(c.net)}</td>
+                      <td className="px-5 py-3 text-right">
                         <div className="inline-flex gap-1">
                           <button onClick={() => setSlip(p)} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700" title="ดูสลิป">
                             <Icon name="eye" className="w-4 h-4" />
@@ -5695,6 +5724,132 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, defaultPe
 };
 
 /* ===== PAYSLIP MODAL — สลิปเงินเดือน (ปรินได้) ===== */
+// สร้าง HTML เนื้อหาสลิป 1 ใบ (ใช้ทั้งพิมพ์เดี่ยวและพิมพ์หลายคน)
+const buildSlipInner = (record, employees, branches, settings) => {
+  const emp = employees.find(e => e.id === record.employeeId);
+  if (!emp) return '';
+  const branch = branches.find(b => b.id === emp.branchId);
+  const c = calcPayroll(record);
+  const [py, pm] = (record.period || '').split('-');
+  const monthLabel = pm ? `${THAI_MONTHS[parseInt(pm,10)-1]} ${parseInt(py,10)+543}` : record.period;
+  const periodLabel = (record.periodFrom && record.periodTo)
+    ? `${fmtDate(record.periodFrom)} - ${fmtDate(record.periodTo)}` : monthLabel;
+  const payDateLabel = record.payDate ? fmtDate(record.payDate) : '-';
+
+  const earnRows = [
+    ['เงินเดือนพื้นฐาน', 'BASIC SALARY', record.baseSalary],
+    ['ค่าล่วงเวลา', 'OVERTIME', record.overtime],
+    ['ค่าพาหนะ', 'TRANSPORT', record.transport],
+    ['โบนัส', 'BONUS', record.bonus],
+    ['รายได้อื่นๆ', 'OTHER', record.otherEarn],
+  ].filter(r => Number(r[2]) > 0);
+
+  const bd = record.breakdown;
+  let deductRows = [];
+  deductRows.push(['ประกันสังคม', 'SSO', record.sso]);
+  deductRows.push(['ภาษี ณ ที่จ่าย', 'WITHHOLDING TAX', record.tax]);
+  if (bd && (bd.lateFine > 0 || (bd.leaveDetails && bd.leaveDetails.some(d => d.deduct > 0)))) {
+    if (bd.lateFine > 0) deductRows.push(['หักมาสาย', `LATE (${bd.lateDetails.length} ครั้ง)`, bd.lateFine]);
+    (bd.leaveDetails || []).forEach(d => { if (d.deduct > 0) deductRows.push([`หัก${d.label}`, `${d.days} วัน`, d.deduct]); });
+  } else if (Number(record.absenceDeduct) > 0) {
+    deductRows.push(['หักขาดงาน/มาสาย/ลา', 'ABSENCE/LATE/LEAVE', record.absenceDeduct]);
+  }
+  deductRows.push(['หัก กยศ.', 'STUDENT LOAN', record.gyos]);
+  deductRows.push(['รายการหักอื่นๆ', 'OTHER', record.otherDeduct]);
+  deductRows = deductRows.filter(r => Number(r[2]) > 0);
+
+  const row = (th, en, val, isDeduct) =>
+    `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #E2E8F0">
+      <div><div style="font-size:12px;color:#1E293B">${th}</div><div style="font-size:8px;color:#94A3B8">${en}</div></div>
+      <div style="font-size:12px;font-weight:600;${isDeduct?'color:#DC2626':''}">${isDeduct?'-':''}${fmtMoney(val)}</div>
+    </div>`;
+
+  return `
+    <div style="display:flex;align-items:center;gap:12px;padding:14px;border-bottom:2px solid #1E3A8A">
+      <img src="${LOGO_EAGLE}" style="width:60px;height:auto" />
+      <div style="flex:1">
+        <div class="font-display" style="font-size:17px;font-weight:700;color:#1E3A8A;line-height:1.2">${settings.companyName||''}</div>
+        <div class="font-display" style="font-size:11px;font-weight:600;color:#3B82F6">${settings.companyNameEn||'FREEDOM FLOW TRADING CO., LTD.'}</div>
+        <div style="font-size:9px;color:#64748B;margin-top:2px">${settings.address||''}</div>
+      </div>
+      <div style="text-align:center;padding-left:12px;border-left:2px solid #E2E8F0">
+        <div class="font-display" style="font-size:18px;font-weight:700;color:#1E3A8A;white-space:nowrap">สลิปเงินเดือน</div>
+        <div style="font-size:10px;color:#64748B;letter-spacing:1px">PAYSLIP</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-bottom:1px solid #CBD5E1">
+      ${[['รหัสพนักงาน', emp.id], ['ชื่อ-นามสกุล', `${emp.firstName} ${emp.lastName}`], ['ตำแหน่ง', emp.position], ['รอบ / วันที่จ่าย', periodLabel]]
+        .map(([l,v],i) => `<div style="padding:7px;${i<3?'border-right:1px solid #E2E8F0':''}"><div style="font-size:9px;color:#94A3B8">${l}</div><div style="font-size:12px;font-weight:600;color:#1E293B">${v}</div></div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr">
+      <div style="border-right:1px solid #CBD5E1">
+        <div style="background:#BFDBFE;padding:6px;text-align:center;font-weight:700;color:#1E3A8A;font-size:12px">รายได้ (EARNINGS)</div>
+        <div style="padding:8px 12px">
+          ${earnRows.map(r => row(r[0],r[1],r[2],false)).join('')}
+          <div style="display:flex;justify-content:space-between;padding:6px 0 0;font-weight:700;color:#1E3A8A;font-size:12px"><span>รวมรายได้</span><span>${fmtMoney(c.earnings)}</span></div>
+        </div>
+      </div>
+      <div>
+        <div style="background:#BFDBFE;padding:6px;text-align:center;font-weight:700;color:#1E3A8A;font-size:12px">รายการหัก (DEDUCTIONS)</div>
+        <div style="padding:8px 12px">
+          ${deductRows.length===0 ? '<div style="font-size:11px;color:#94A3B8;text-align:center;padding:8px">ไม่มีรายการหัก</div>' : deductRows.map(r => row(r[0],r[1],r[2],true)).join('')}
+          <div style="display:flex;justify-content:space-between;padding:6px 0 0;font-weight:700;color:#DC2626;font-size:12px"><span>รวมรายการหัก</span><span>-${fmtMoney(c.deductions)}</span></div>
+        </div>
+      </div>
+    </div>
+    <div style="background:#BFDBFE;padding:10px;display:flex;justify-content:space-between;align-items:center;border-top:2px solid #1E3A8A">
+      <div><div class="font-display" style="font-size:16px;font-weight:700;color:#1E3A8A">เงินรับสุทธิ</div><div style="font-size:10px;color:#475569">NET PAY</div></div>
+      <div class="font-display" style="font-size:24px;font-weight:700;color:#1E3A8A">${fmtMoney(c.net)}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;padding:14px 24px;gap:24px;border-top:1px solid #E2E8F0">
+      <div style="text-align:center">
+        <div style="height:30px;margin-bottom:4px"></div>
+        <div style="border-bottom:1px solid #94A3B8;margin-bottom:4px"></div>
+        <div style="font-size:11px;color:#64748B">ลงชื่อพนักงาน</div>
+      </div>
+      <div style="text-align:center">
+        <div style="height:30px;margin-bottom:4px;display:flex;align-items:flex-end;justify-content:center"><img src="${SIGNATURE_ACCOUNTING}" style="max-height:30px;max-width:120px" /></div>
+        <div style="border-bottom:1px solid #94A3B8;margin-bottom:4px"></div>
+        <div style="font-size:11px;color:#1E293B;font-weight:600">ลงชื่อผู้จ่ายเงิน</div>
+        <div style="font-size:11px;color:#1E293B">นางสาวเสาวภา โครตแสนลี</div>
+        <div style="font-size:10px;color:#64748B">ฝ่ายบัญชี</div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:9px;color:#94A3B8;padding:6px">วันที่จ่าย: ${payDateLabel} · สาขา: ${branch?.name||'-'}</div>
+  `;
+};
+
+// พิมพ์สลิปหลายคนในครั้งเดียว (2 ใบ/หน้า A4)
+const printManySlips = (records, employees, branches, settings) => {
+  if (!records || records.length === 0) return;
+  const S = 'scr' + 'ipt';
+  const slips = records.map(r => `<div class="slip">${buildSlipInner(r, employees, branches, settings)}</div>`).join('');
+  const w = window.open('', '_blank', 'width=760,height=900');
+  const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>สลิปเงินเดือน (' + records.length + ' คน)</title>'
+    + '<' + S + ' src="https://cdn.tailwindcss.com"></' + S + '>'
+    + '<style>'
+    + "@import url('https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&family=Sarabun:wght@400;500;600&display=swap');"
+    + "body{font-family:'Sarabun',sans-serif;padding:16px;background:#f1f5f9}"
+    + ".font-display{font-family:'Prompt',sans-serif}"
+    + ".slip{width:190mm;min-height:130mm;margin:0 auto 12px;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,0.1)}"
+    + '@media print{'
+    + '  @page{size:A4 portrait;margin:8mm}'
+    + '  body{padding:0;background:#fff}'
+    + '  .no-print{display:none}'
+    + '  .slip{width:100%;max-height:138mm;box-shadow:none;margin:0 0 4mm;page-break-inside:avoid;border:1px solid #e2e8f0}'
+    + '  .slip:nth-child(2n){page-break-after:always}'  // 2 ใบ/หน้า
+    + '}'
+    + '</style></head><body>'
+    + slips
+    + '<div class="no-print" style="text-align:center;margin-top:20px">'
+    + '<button onclick="window.print()" style="background:#2563EB;color:#fff;padding:10px 24px;border:none;border-radius:8px;font-size:15px;cursor:pointer;font-family:Sarabun">พิมพ์ / บันทึก PDF (' + records.length + ' คน)</button>'
+    + '</div>'
+    + '<' + S + '>window.onload=function(){setTimeout(function(){window.print()},700)}</' + S + '>'
+    + '</body></html>';
+  w.document.write(html);
+  w.document.close();
+};
+
 const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
   if (!record) return null;
   const emp = employees.find(e => e.id === record.employeeId);
