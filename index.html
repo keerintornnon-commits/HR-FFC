@@ -1209,7 +1209,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.5.2
               </div>
             </div>
           </Card>
@@ -5803,20 +5803,20 @@ const buildSlipInner = (record, employees, branches, settings) => {
     const leaveList = (bd.leaveDetails || []).filter(d => d.type !== 'absent').map(d => `${dShort(d.date)}${d.label.includes('(')?d.label.slice(d.label.indexOf('(')):''}`).join(', ');
     const absentList = (bd.leaveDetails || []).filter(d => d.type === 'absent' && d.date).map(d => dShort(d.date)).join(', ');
     workSummary = `
-      <div style="padding:8px 14px;border-top:1px solid #E2E8F0;background:#F8FAFC">
-        <div style="display:flex;gap:16px;font-size:11px;color:#1E293B;flex-wrap:wrap">
+      <div style="padding:5px 14px;border-top:1px solid #E2E8F0;background:#F8FAFC">
+        <div style="display:flex;gap:16px;font-size:10px;color:#1E293B;flex-wrap:wrap">
           <span><strong style="color:#1E3A8A">มาทำงาน:</strong> ${bd.attendedDays ?? '-'} วัน</span>
           ${bd.rangeDays != null ? `<span><strong>วันทำงานในรอบ:</strong> ${bd.rangeDays} วัน (ไม่นับอาทิตย์)</span>` : ''}
         </div>
-        ${lateList ? `<div style="font-size:10px;color:#B45309;margin-top:3px">มาสาย (${(bd.lateDetails||[]).length} วัน): ${lateList}</div>` : ''}
-        ${leaveList ? `<div style="font-size:10px;color:#1D4ED8;margin-top:3px">ลางาน: ${leaveList}</div>` : ''}
-        ${absentList ? `<div style="font-size:10px;color:#DC2626;margin-top:3px">ขาดงาน: ${absentList}</div>` : ''}
+        ${lateList ? `<div style="font-size:9px;color:#B45309;margin-top:2px">มาสาย (${(bd.lateDetails||[]).length} วัน): ${lateList}</div>` : ''}
+        ${leaveList ? `<div style="font-size:9px;color:#1D4ED8;margin-top:2px">ลางาน: ${leaveList}</div>` : ''}
+        ${absentList ? `<div style="font-size:9px;color:#DC2626;margin-top:2px">ขาดงาน: ${absentList}</div>` : ''}
       </div>`;
   }
 
   return `
-    <div style="display:flex;align-items:center;gap:12px;padding:14px;border-bottom:2px solid #1E3A8A">
-      <img src="${LOGO_EAGLE}" style="width:60px;height:auto" />
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:2px solid #1E3A8A">
+      <img src="${LOGO_EAGLE}" style="width:52px;height:auto" />
       <div style="flex:1">
         <div class="font-display" style="font-size:17px;font-weight:700;color:#1E3A8A;line-height:1.2">${settings.companyName||''}</div>
         <div class="font-display" style="font-size:11px;font-weight:600;color:#3B82F6">${settings.companyNameEn||'FREEDOM FLOW TRADING CO., LTD.'}</div>
@@ -5833,40 +5833,40 @@ const buildSlipInner = (record, employees, branches, settings) => {
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr">
       <div style="border-right:1px solid #CBD5E1">
-        <div style="background:#BFDBFE;padding:6px;text-align:center;font-weight:700;color:#1E3A8A;font-size:12px">รายได้ (EARNINGS)</div>
-        <div style="padding:8px 12px">
+        <div style="background:#BFDBFE;padding:5px;text-align:center;font-weight:700;color:#1E3A8A;font-size:12px">รายได้ (EARNINGS)</div>
+        <div style="padding:6px 12px">
           ${earnRows.map(r => row(r[0],r[1],r[2],false)).join('')}
-          <div style="display:flex;justify-content:space-between;padding:6px 0 0;font-weight:700;color:#1E3A8A;font-size:12px"><span>รวมรายได้</span><span>${fmtMoney(c.earnings)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0 0;font-weight:700;color:#1E3A8A;font-size:12px"><span>รวมรายได้</span><span>${fmtMoney(c.earnings)}</span></div>
         </div>
       </div>
       <div>
-        <div style="background:#BFDBFE;padding:6px;text-align:center;font-weight:700;color:#1E3A8A;font-size:12px">รายการหัก (DEDUCTIONS)</div>
-        <div style="padding:8px 12px">
-          ${deductRows.length===0 ? '<div style="font-size:11px;color:#94A3B8;text-align:center;padding:8px">ไม่มีรายการหัก</div>' : deductRows.map(r => row(r[0],r[1],r[2],true)).join('')}
-          <div style="display:flex;justify-content:space-between;padding:6px 0 0;font-weight:700;color:#DC2626;font-size:12px"><span>รวมรายการหัก</span><span>-${fmtMoney(c.deductions)}</span></div>
+        <div style="background:#BFDBFE;padding:5px;text-align:center;font-weight:700;color:#1E3A8A;font-size:12px">รายการหัก (DEDUCTIONS)</div>
+        <div style="padding:6px 12px">
+          ${deductRows.length===0 ? '<div style="font-size:11px;color:#94A3B8;text-align:center;padding:6px">ไม่มีรายการหัก</div>' : deductRows.map(r => row(r[0],r[1],r[2],true)).join('')}
+          <div style="display:flex;justify-content:space-between;padding:5px 0 0;font-weight:700;color:#DC2626;font-size:12px"><span>รวมรายการหัก</span><span>-${fmtMoney(c.deductions)}</span></div>
         </div>
       </div>
     </div>
     ${workSummary}
-    <div style="background:#BFDBFE;padding:10px;display:flex;justify-content:space-between;align-items:center;border-top:2px solid #1E3A8A">
+    <div style="background:#BFDBFE;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;border-top:2px solid #1E3A8A">
       <div><div class="font-display" style="font-size:16px;font-weight:700;color:#1E3A8A">เงินรับสุทธิ</div><div style="font-size:10px;color:#475569">NET PAY</div></div>
       <div class="font-display" style="font-size:24px;font-weight:700;color:#1E3A8A">${fmtMoney(c.net)}</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;padding:14px 24px;gap:24px;border-top:1px solid #E2E8F0">
+    <div style="display:grid;grid-template-columns:1fr 1fr;padding:8px 24px 6px;gap:24px;border-top:1px solid #E2E8F0">
       <div style="text-align:center">
-        <div style="height:30px;margin-bottom:4px"></div>
-        <div style="border-bottom:1px solid #94A3B8;margin-bottom:4px"></div>
-        <div style="font-size:11px;color:#64748B">ลงชื่อพนักงาน</div>
+        <div style="height:22px;margin-bottom:2px"></div>
+        <div style="border-bottom:1px solid #94A3B8;margin-bottom:3px"></div>
+        <div style="font-size:10px;color:#64748B">ลงชื่อพนักงาน</div>
       </div>
       <div style="text-align:center">
-        <div style="height:30px;margin-bottom:4px;display:flex;align-items:flex-end;justify-content:center"><img src="${SIGNATURE_ACCOUNTING}" style="max-height:30px;max-width:120px" /></div>
-        <div style="border-bottom:1px solid #94A3B8;margin-bottom:4px"></div>
-        <div style="font-size:11px;color:#1E293B;font-weight:600">ลงชื่อผู้จ่ายเงิน</div>
-        <div style="font-size:11px;color:#1E293B">นางสาวเสาวภา โครตแสนลี</div>
-        <div style="font-size:10px;color:#64748B">ฝ่ายบัญชี</div>
+        <div style="height:22px;margin-bottom:2px;display:flex;align-items:flex-end;justify-content:center"><img src="${SIGNATURE_ACCOUNTING}" style="max-height:22px;max-width:100px" /></div>
+        <div style="border-bottom:1px solid #94A3B8;margin-bottom:3px"></div>
+        <div style="font-size:10px;color:#1E293B;font-weight:600">ลงชื่อผู้จ่ายเงิน</div>
+        <div style="font-size:10px;color:#1E293B">นางสาวเสาวภา โครตแสนลี</div>
+        <div style="font-size:9px;color:#64748B">ฝ่ายบัญชี</div>
       </div>
     </div>
-    <div style="text-align:center;font-size:9px;color:#94A3B8;padding:6px">วันที่จ่าย: ${payDateLabel} · สาขา: ${branch?.name||'-'}</div>
+    <div style="text-align:center;font-size:9px;color:#94A3B8;padding:3px">วันที่จ่าย: ${payDateLabel} · สาขา: ${branch?.name||'-'}</div>
   `;
 };
 
@@ -5882,13 +5882,13 @@ const printManySlips = (records, employees, branches, settings) => {
     + "@import url('https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&family=Sarabun:wght@400;500;600&display=swap');"
     + "body{font-family:'Sarabun',sans-serif;padding:16px;background:#f1f5f9}"
     + ".font-display{font-family:'Prompt',sans-serif}"
-    + ".slip{width:190mm;min-height:130mm;margin:0 auto 12px;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,0.1)}"
+    + ".slip{width:190mm;margin:0 auto 12px;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,0.1);box-sizing:border-box;overflow:hidden}"
     + '@media print{'
-    + '  @page{size:A4 portrait;margin:8mm}'
-    + '  body{padding:0;background:#fff}'
+    + '  @page{size:A4 portrait;margin:0}'
+    + '  html,body{margin:0;padding:0;background:#fff}'
     + '  .no-print{display:none}'
-    + '  .slip{width:100%;max-height:138mm;box-shadow:none;margin:0 0 4mm;page-break-inside:avoid;border:1px solid #e2e8f0}'
-    + '  .slip:nth-child(2n){page-break-after:always}'  // 2 ใบ/หน้า
+    + '  .slip{width:210mm;height:148.5mm;box-shadow:none;margin:0;border:none;box-sizing:border-box;padding:6mm 8mm;page-break-inside:avoid;overflow:hidden}'
+    + '  .slip:nth-child(2n){page-break-after:always}'  // ครบ 2 ใบ ขึ้นหน้าใหม่
     + '}'
     + '</style></head><body>'
     + slips
@@ -5953,13 +5953,13 @@ const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
       + "body { font-family: 'Sarabun', sans-serif; padding: 16px; background:#f1f5f9; }"
       + ".font-display { font-family: 'Prompt', sans-serif; }"
       // หน้าจอ: แสดงกรอบครึ่ง A4 ให้เห็นภาพ
-      + '.slip-wrap { width: 190mm; min-height: 138mm; margin: 0 auto; background:#fff; padding: 0; box-shadow:0 4px 20px rgba(0,0,0,0.1); }'
-      // พิมพ์บน A4 แนวตั้ง — สลิปกินพื้นที่ครึ่งบน (~148.5mm) เหลือครึ่งล่างว่างให้ตัด
+      + '.slip-wrap { width: 190mm; margin: 0 auto; background:#fff; box-shadow:0 4px 20px rgba(0,0,0,0.1); box-sizing:border-box; }'
+      // พิมพ์: สลิปกินครึ่งบน A4 (148.5mm) พอดี ไม่ตัดเนื้อหา
       + '@media print {'
-      + '  @page { size: A4 portrait; margin: 10mm; }'
-      + '  body { padding: 0; background:#fff; }'
+      + '  @page { size: A4 portrait; margin: 0; }'
+      + '  html,body { margin:0; padding: 0; background:#fff; }'
       + '  .no-print { display: none; }'
-      + '  .slip-wrap { width: 100%; min-height: auto; max-height: 130mm; box-shadow:none; margin:0; }'
+      + '  .slip-wrap { width: 210mm; height: 148.5mm; box-shadow:none; margin:0; padding: 6mm 8mm; box-sizing:border-box; overflow:hidden; }'
       + '}'
       + '</style></head><body><div class="slip-wrap">' + node.innerHTML + '</div>'
       + '<div class="no-print" style="text-align:center;margin-top:20px">'
@@ -6062,22 +6062,22 @@ const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
           </div>
 
           {/* Signature */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '14px 24px', gap: 24, borderTop: '1px solid #E2E8F0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '8px 24px 6px', gap: 24, borderTop: '1px solid #E2E8F0' }}>
             {/* พนักงาน */}
             <div style={{ textAlign: 'center' }}>
-              <div style={{ height: 30, marginBottom: 4 }} />
-              <div style={{ borderBottom: '1px solid #94A3B8', marginBottom: 4 }} />
-              <div style={{ fontSize: 11, color: '#64748B' }}>ลงชื่อพนักงาน</div>
+              <div style={{ height: 22, marginBottom: 2 }} />
+              <div style={{ borderBottom: '1px solid #94A3B8', marginBottom: 3 }} />
+              <div style={{ fontSize: 10, color: '#64748B' }}>ลงชื่อพนักงาน</div>
             </div>
             {/* ผู้จ่ายเงิน — มีลายเซ็น */}
             <div style={{ textAlign: 'center' }}>
-              <div style={{ height: 30, marginBottom: 4, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-                <img src={SIGNATURE_ACCOUNTING} alt="ลายเซ็น" style={{ maxHeight: 30, maxWidth: 120 }} />
+              <div style={{ height: 22, marginBottom: 2, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                <img src={SIGNATURE_ACCOUNTING} alt="ลายเซ็น" style={{ maxHeight: 22, maxWidth: 100 }} />
               </div>
-              <div style={{ borderBottom: '1px solid #94A3B8', marginBottom: 4 }} />
-              <div style={{ fontSize: 11, color: '#1E293B', fontWeight: 600 }}>ลงชื่อผู้จ่ายเงิน</div>
-              <div style={{ fontSize: 11, color: '#1E293B' }}>นางสาวเสาวภา โครตแสนลี</div>
-              <div style={{ fontSize: 10, color: '#64748B' }}>ฝ่ายบัญชี</div>
+              <div style={{ borderBottom: '1px solid #94A3B8', marginBottom: 3 }} />
+              <div style={{ fontSize: 10, color: '#1E293B', fontWeight: 600 }}>ลงชื่อผู้จ่ายเงิน</div>
+              <div style={{ fontSize: 10, color: '#1E293B' }}>นางสาวเสาวภา โครตแสนลี</div>
+              <div style={{ fontSize: 9, color: '#64748B' }}>ฝ่ายบัญชี</div>
             </div>
           </div>
         </div>
