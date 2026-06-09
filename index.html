@@ -418,11 +418,11 @@ const useApp = () => useContext(AppCtx);
    CONFIG — แก้ apiUrl ที่นี่หลังจาก Deploy Apps Script แล้ว
    ============================================================= */
 const CONFIG = {
-  // วาง Web App URL ของ Google Apps Script ที่นี่ (หรือตั้งค่าผ่านหน้า "ตั้งค่า" ในเว็บ)
-  // ถ้าเว้นว่าง = โหมด Demo (ข้อมูลหายเมื่อรีเฟรช)
-  // ตัวอย่าง: 'https://script.google.com/macros/s/AKfycbx.../exec'
+  // วาง Web App URL ของ Google Apps Script ที่นี่ (เชื่อมต่ออัตโนมัติทุกครั้งที่เปิด)
+  // ถ้าตั้งผ่านหน้า "ตั้งค่า" ในเว็บ จะใช้ค่าจาก localStorage แทน
   apiUrl: (() => {
-    try { return localStorage.getItem('ffc_api_url') || 'https://script.google.com/macros/s/AKfycbxPQfYoZ9vHs43QEwgkZBy4p2gU3Py11rWHQSl3sMO_c5kp4uFbe5O3d0HUOgFvTWDz/exec'; } catch { return ''; }
+    const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwmPBAlshxd0_vAUSXnnPmV0HDgyQeKd7963005eUaqBroZzQp5ivfLvIwtY5xZS48A/exec';
+    try { return localStorage.getItem('ffc_api_url') || DEFAULT_URL; } catch { return DEFAULT_URL; }
   })(),
 };
 
@@ -1209,7 +1209,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.5.3
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.5.5
               </div>
             </div>
           </Card>
@@ -1304,7 +1304,7 @@ const Sidebar = ({ current, onChange, user, onLogout }) => {
 };
 
 const Topbar = ({ title, subtitle, action }) => {
-  const { leaves, assets, employees, user, setPage } = useApp();
+  const { leaves, assets, employees, user, setPage, refreshData, syncing, addToast } = useApp();
   const [open, setOpen] = useState(false);
 
   // สร้างรายการแจ้งเตือนจากข้อมูลจริง
@@ -1362,6 +1362,16 @@ const Topbar = ({ title, subtitle, action }) => {
         </div>
         <div className="flex items-center gap-3">
           {action}
+          <button
+            onClick={() => api.enabled() ? refreshData() : addToast('info', 'ยังไม่ได้เชื่อมต่อ Google Sheets — ไปที่ ตั้งค่า › สถานะฐานข้อมูล เพื่อกรอก URL')}
+            disabled={syncing}
+            title={api.enabled() ? 'ซิงค์ข้อมูลล่าสุด' : 'ยังไม่ได้เชื่อมต่อ Google Sheets'}
+            className={cls(
+              'w-10 h-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-50',
+              api.enabled() ? 'border-ink-200 hover:bg-ink-50 text-ink-600' : 'border-gold-300 bg-gold-50 text-gold-600 hover:bg-gold-100',
+            )}>
+            <Icon name="refresh" className={cls('w-5 h-5', syncing && 'animate-spin')} />
+          </button>
           <div className="relative">
             <button
               onClick={() => setOpen(o => !o)}
@@ -1422,7 +1432,7 @@ const Topbar = ({ title, subtitle, action }) => {
    DASHBOARD PAGE
    ============================================================= */
 const Dashboard = ({ }) => {
-  const { employees, attendance, leaves, leaveTypes, branches, user } = useApp();
+  const { employees, attendance, leaves, leaveTypes, branches, user, refreshData, syncing } = useApp();
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);  // วันที่ที่เลือกดูรายละเอียด
   const [detailTab, setDetailTab] = useState('leave');       // leave / absent / late / wfh
@@ -1600,6 +1610,16 @@ const Dashboard = ({ }) => {
         <div className="orb w-40 h-40 bg-gold-500/20 left-10 top-10" style={{ animationDelay: '8s' }} />
 
         <div className="relative grid lg:grid-cols-2 gap-6 items-center">
+          {api.enabled() && (
+            <button
+              onClick={refreshData}
+              disabled={syncing}
+              title="ซิงค์ข้อมูลล่าสุด"
+              className="absolute top-0 right-0 z-10 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 backdrop-blur-sm text-white/90 text-xs hover:bg-white/20 transition-colors disabled:opacity-50">
+              <Icon name="refresh" className={cls('w-3.5 h-3.5', syncing && 'animate-spin')} />
+              {syncing ? 'กำลังซิงค์...' : 'ซิงค์ข้อมูล'}
+            </button>
+          )}
           <div>
             <div className="flex items-center gap-2 mb-3">
               <span className="live-dot" />
@@ -7921,44 +7941,46 @@ const App = () => {
   // Initialize data — โหลดจาก API หรือใช้ Demo data
   useEffect(() => {
     if (api.enabled()) {
-      // โหมด API — โหลดจาก Google Sheets
+      // ฟังก์ชันใส่ข้อมูลลง state
+      const applyData = (data) => {
+        setEmployees(data.employees || []);
+        setAttendance(data.attendance || []);
+        setLeaves(data.leaves || []);
+        if (data.leaveTypes && data.leaveTypes.length > 0) setLeaveTypes(data.leaveTypes);
+        if (data.branches && data.branches.length > 0) setBranches(data.branches);
+        if (data.departments && data.departments.length > 0) setDepartments(data.departments);
+        if (data.assets && data.assets.length > 0) setAssets(data.assets);
+        if (data.payroll && data.payroll.length > 0) setPayroll(data.payroll);
+        if (data.kpiCriteria && data.kpiCriteria.length > 0) setKpiCriteria(data.kpiCriteria);
+        if (data.kpiRecords && data.kpiRecords.length > 0) setKpiRecords(data.kpiRecords);
+        if (data.settings && Object.keys(data.settings).length > 0) setSettings(s => ({ ...s, ...data.settings }));
+      };
+
+      // 1) โหลดจาก cache ก่อน (แสดงทันที ไม่ต้องรอเน็ต)
+      let hadCache = false;
+      try {
+        const cached = localStorage.getItem('ffc_data_cache');
+        if (cached) {
+          applyData(JSON.parse(cached));
+          hadCache = true;
+          setLoading(false);  // มี cache แล้ว ไม่ต้องโชว์ loading
+        }
+      } catch {}
+
+      // 2) ซิงค์ข้อมูลจริงเบื้องหลัง แล้วอัปเดต + cache
       (async () => {
         try {
           const data = await api.get('getAll');
-          setEmployees(data.employees || []);
-          setAttendance(data.attendance || []);
-          setLeaves(data.leaves || []);
-          if (data.leaveTypes && data.leaveTypes.length > 0) {
-            setLeaveTypes(data.leaveTypes);
-          }
-          if (data.branches && data.branches.length > 0) {
-            setBranches(data.branches);
-          }
-          if (data.departments && data.departments.length > 0) {
-            setDepartments(data.departments);
-          }
-          if (data.assets && data.assets.length > 0) {
-            setAssets(data.assets);
-          }
-          if (data.payroll && data.payroll.length > 0) {
-            setPayroll(data.payroll);
-          }
-          if (data.kpiCriteria && data.kpiCriteria.length > 0) {
-            setKpiCriteria(data.kpiCriteria);
-          }
-          if (data.kpiRecords && data.kpiRecords.length > 0) {
-            setKpiRecords(data.kpiRecords);
-          }
-          if (data.settings && Object.keys(data.settings).length > 0) {
-            setSettings(s => ({ ...s, ...data.settings }));
-          }
+          applyData(data);
+          try { localStorage.setItem('ffc_data_cache', JSON.stringify(data)); } catch {}
         } catch (err) {
-          setToast({ type: 'error', message: 'เชื่อมต่อ Google Sheets ล้มเหลว: ' + err.message });
-          // Fallback to demo data
-          const emps = seedEmployees();
-          setEmployees(emps);
-          setAttendance(seedAttendance(emps));
-          setLeaves(seedLeaves(emps));
+          if (!hadCache) {
+            setToast({ type: 'error', message: 'เชื่อมต่อ Google Sheets ล้มเหลว: ' + err.message });
+            const emps = seedEmployees();
+            setEmployees(emps);
+            setAttendance(seedAttendance(emps));
+            setLeaves(seedLeaves(emps));
+          }
         } finally {
           setLoading(false);
         }
@@ -7972,7 +7994,45 @@ const App = () => {
     }
   }, []);
 
+  // บันทึก cache อัตโนมัติเมื่อข้อมูลเปลี่ยน (กันข้อมูลหายตอนรีเฟรช)
+  useEffect(() => {
+    if (!api.enabled() || loading) return;
+    try {
+      localStorage.setItem('ffc_data_cache', JSON.stringify({
+        employees, attendance, leaves, leaveTypes, branches,
+        departments, assets, payroll, kpiCriteria, kpiRecords, settings,
+      }));
+    } catch {}
+  }, [employees, attendance, leaves, assets, payroll, kpiCriteria, kpiRecords, leaveTypes, branches, departments, settings, loading]);
+
   const addToast = (type, message) => setToast({ type, message });
+
+  // ดึงข้อมูลใหม่จาก Sheets แบบไม่ต้องรีเฟรชหน้า (เร็วกว่า + ไม่กระพริบ)
+  const [syncing, setSyncing] = useState(false);
+  const refreshData = async () => {
+    if (!api.enabled() || syncing) return;
+    setSyncing(true);
+    try {
+      const data = await api.get('getAll');
+      setEmployees(data.employees || []);
+      setAttendance(data.attendance || []);
+      setLeaves(data.leaves || []);
+      if (data.leaveTypes?.length) setLeaveTypes(data.leaveTypes);
+      if (data.branches?.length) setBranches(data.branches);
+      if (data.departments?.length) setDepartments(data.departments);
+      if (data.assets?.length) setAssets(data.assets);
+      if (data.payroll?.length) setPayroll(data.payroll);
+      if (data.kpiCriteria?.length) setKpiCriteria(data.kpiCriteria);
+      if (data.kpiRecords?.length) setKpiRecords(data.kpiRecords);
+      if (data.settings && Object.keys(data.settings).length) setSettings(s => ({ ...s, ...data.settings }));
+      try { localStorage.setItem('ffc_data_cache', JSON.stringify(data)); } catch {}
+      addToast('success', 'อัปเดตข้อมูลล่าสุดแล้ว');
+    } catch (err) {
+      addToast('error', 'ซิงค์ไม่สำเร็จ: ' + err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Loading screen ระหว่างเชื่อมต่อ API
   if (loading) {
@@ -8029,6 +8089,7 @@ const App = () => {
       kpiRecords, setKpiRecords,
       settings, setSettings,
       page, setPage,
+      refreshData, syncing,
       addToast,
     }}>
       <div className="flex min-h-screen bg-ink-50">
