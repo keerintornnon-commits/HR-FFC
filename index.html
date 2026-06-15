@@ -767,12 +767,13 @@ const attStatusInfo = (status, leaveType, leaveTypes, opts) => {
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const fmtMoney = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// คำนวณค่าปรับมาสายจากนาทีที่สาย (คิดเรทเดียวตามช่วง ไม่บวกสะสม)
-// ≤5 นาที = 0 (ผ่อนผัน) · 6-15 นาที = 20 บาท · เกิน 15 นาที = 50 บาท/ชั่วโมง (สูงสุด 3 ชม. = 150)
+// คำนวณค่าปรับมาสายจากนาทีที่สาย (นับจาก 08:05 — ผ่านการผ่อนผันมาแล้วใน lateMinutesOf)
+// lateMinutes > 0 = เข้างานเลย 08:05 = สายแล้ว ต้องหัก
+// 1-15 นาที (เข้า 08:06-08:20) = 20 บาท · เกิน 15 นาที = 50 บาท/ชั่วโมง (สูงสุด 3 ชม. = 150)
 const calcLateFine = (lateMinutes) => {
   const m = Number(lateMinutes) || 0;
-  if (m <= 5) return 0;            // ไม่เกิน 5 นาที (ผ่อนผัน) ไม่ปรับ
-  if (m <= 15) return 20;          // 6-15 นาที = 20 บาท
+  if (m <= 0) return 0;            // ไม่สาย (เข้าก่อน/ทัน 08:05)
+  if (m <= 15) return 20;          // สาย 1-15 นาที (เข้า 08:06-08:20) = 20 บาท
   // เกิน 15 นาที = 50 บาท/ชั่วโมง (ปัดขึ้นทุกชั่วโมง) สูงสุด 3 ชั่วโมง — ไม่บวก 20 จากช่วงก่อน
   const hours = Math.min(3, Math.ceil(m / 60));
   return hours * 50;
@@ -1209,7 +1210,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. NEW 15/06/2569
               </div>
             </div>
           </Card>
@@ -5354,10 +5355,12 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   }
 
   // ===== หักมาสาย =====
+  // คิดทุกวันที่มาสายจริง ไม่ว่าสถานะ late หรือ partial (มาทำงานสาย + ลาบางส่วน)
   let lateFine = 0;
   const lateDetails = [];
   monthAtt.forEach(a => {
-    if (a.status === 'late') {
+    // เช็คจากเวลาเข้างานจริง (ครอบคลุม late, partial, nocheckout ที่เข้าสาย)
+    if (['late', 'partial', 'nocheckout'].includes(a.status) && a.checkIn) {
       const lm = lateMinutesOf(a.checkIn);
       const fine = calcLateFine(lm);
       if (fine > 0) { lateFine += fine; lateDetails.push({ date: toYMD(a.date), minutes: lm, fine }); }
