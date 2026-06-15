@@ -1209,7 +1209,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.5.5
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
               </div>
             </div>
           </Card>
@@ -3105,6 +3105,7 @@ const AttendancePage = () => {
   const [filterBranch, setFilterBranch] = useState('all');
   const [search, setSearch] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   // ผู้จัดการภาค (regional) — จำกัดให้เห็นเฉพาะภาคตัวเอง
   const myEmp = employees.find(e => e.id === user.empId);
@@ -3151,9 +3152,14 @@ const AttendancePage = () => {
         subtitle="บันทึกจากเครื่องสแกนลายนิ้วมือทุกสาขา"
         action={
           (user.role === 'admin' || user.role === 'hr' || user.role === 'manager' || isRegional) && (
-            <Button icon="upload" onClick={() => setShowUpload(true)}>
-              อัปโหลด Excel
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" icon="download" onClick={() => setShowExport(true)}>
+                Export ประวัติ
+              </Button>
+              <Button icon="upload" onClick={() => setShowUpload(true)}>
+                อัปโหลด Excel
+              </Button>
+            </div>
           )
         }
       />
@@ -3296,7 +3302,160 @@ const AttendancePage = () => {
         leaves={leaves}
         leaveTypes={leaveTypes}
       />
+
+      <ExportAttendanceModal
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        attendance={attendance}
+        employees={employees.filter(e => !lockedBranch || e.branchId === lockedBranch)}
+        branches={branches}
+        leaveTypes={leaveTypes}
+        lockedBranch={lockedBranch}
+      />
     </div>
+  );
+};
+
+
+/* ===== EXPORT ATTENDANCE MODAL — ส่งออกประวัติเข้างานหลายคน ===== */
+const ExportAttendanceModal = ({ open, onClose, attendance, employees, branches, leaveTypes, lockedBranch }) => {
+  const today = new Date().toISOString().split('T')[0];
+  const firstOfMonth = today.slice(0, 8) + '01';
+  const [from, setFrom] = useState(firstOfMonth);
+  const [to, setTo] = useState(today);
+  const [branch, setBranch] = useState(lockedBranch || 'all');
+  const [selected, setSelected] = useState([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => { if (lockedBranch) setBranch(lockedBranch); }, [lockedBranch]);
+
+  if (!open) return null;
+
+  const branchEmps = employees.filter(e => branch === 'all' || e.branchId === branch);
+  const visibleEmps = branchEmps.filter(e => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (e.firstName + e.lastName + e.id + (e.nickname || '')).toLowerCase().includes(q);
+  });
+
+  const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const allSel = visibleEmps.length > 0 && visibleEmps.every(e => selected.includes(e.id));
+  const toggleAll = () => setSelected(allSel ? selected.filter(id => !visibleEmps.some(e => e.id === id)) : [...new Set([...selected, ...visibleEmps.map(e => e.id)])]);
+
+  const doExport = () => {
+    const targetEmps = selected.length > 0 ? branchEmps.filter(e => selected.includes(e.id)) : branchEmps;
+    if (targetEmps.length === 0) { alert('ไม่มีพนักงานให้ส่งออก'); return; }
+
+    const XLSXlib = window.XLSX;
+    const wb = XLSXlib.utils.book_new();
+
+    // Sheet 1: สรุปรวม
+    const summaryHeader = ['รหัส', 'ชื่อ-นามสกุล', 'ชื่อเล่น', 'สาขา', 'มาทำงาน', 'มาสาย', 'ขาดงาน', 'ลา', 'WFH'];
+    const summaryRows = targetEmps.map(emp => {
+      const recs = attendance.filter(a => a.employeeId === emp.id && toYMD(a.date) >= from && toYMD(a.date) <= to);
+      const cnt = (st) => recs.filter(r => r.status === st).length;
+      const br = branches.find(b => b.id === emp.branchId);
+      return [
+        emp.id, `${emp.firstName} ${emp.lastName}`, emp.nickname || '', br?.name || emp.branchId,
+        recs.filter(r => ['ontime','partial','nocheckout'].includes(r.status)).length,
+        cnt('late'), cnt('absent'),
+        recs.filter(r => r.status === 'leave' || r.status === 'partial').length,
+        cnt('wfh'),
+      ];
+    });
+    const ws1 = XLSXlib.utils.aoa_to_sheet([summaryHeader, ...summaryRows]);
+    ws1['!cols'] = [{wch:10},{wch:22},{wch:10},{wch:16},{wch:9},{wch:8},{wch:8},{wch:6},{wch:6}];
+    XLSXlib.utils.book_append_sheet(wb, ws1, 'สรุปรวม');
+
+    // Sheet 2: รายละเอียดรายวัน
+    const detailHeader = ['วันที่', 'รหัส', 'ชื่อ-นามสกุล', 'สาขา', 'เวลาเข้า', 'เวลาออก', 'สถานะ'];
+    const detailRows = [];
+    targetEmps.forEach(emp => {
+      const recs = attendance
+        .filter(a => a.employeeId === emp.id && toYMD(a.date) >= from && toYMD(a.date) <= to)
+        .sort((a, b) => toYMD(a.date).localeCompare(toYMD(b.date)));
+      const br = branches.find(b => b.id === emp.branchId);
+      recs.forEach(r => {
+        const info = attStatusInfo(r.status, r.leaveType, leaveTypes, { leavePeriod: r.leavePeriod, leaveHours: r.leaveHours });
+        detailRows.push([
+          toYMD(r.date), emp.id, `${emp.firstName} ${emp.lastName}`, br?.name || emp.branchId,
+          normTime(r.checkIn) || '-', normTime(r.checkOut) || '-', info.label,
+        ]);
+      });
+    });
+    const ws2 = XLSXlib.utils.aoa_to_sheet([detailHeader, ...detailRows]);
+    ws2['!cols'] = [{wch:12},{wch:10},{wch:22},{wch:16},{wch:10},{wch:10},{wch:24}];
+    XLSXlib.utils.book_append_sheet(wb, ws2, 'รายละเอียด');
+
+    const brName = branch === 'all' ? 'ทุกสาขา' : (branches.find(b => b.id === branch)?.name || branch);
+    XLSXlib.writeFile(wb, `ประวัติเข้างาน_${brName}_${from}_ถึง_${to}.xlsx`);
+    onClose();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="ส่งออกประวัติเข้างาน" size="lg">
+      <div className="space-y-4">
+        <div className="grid md:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ตั้งแต่วันที่</label>
+            <Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ถึงวันที่</label>
+            <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+            <Select value={branch} onChange={(e) => { setBranch(e.target.value); setSelected([]); }} disabled={!!lockedBranch}>
+              {!lockedBranch && <option value="all">ทุกสาขา</option>}
+              {branches.filter(b => !lockedBranch || b.id === lockedBranch).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { label: 'เดือนนี้', f: () => { const d = new Date(); return [`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`, today]; } },
+            { label: 'เดือนก่อน', f: () => { const d = new Date(); d.setMonth(d.getMonth()-1); const y=d.getFullYear(),m=d.getMonth(); return [`${y}-${String(m+1).padStart(2,'0')}-01`, `${y}-${String(m+1).padStart(2,'0')}-${String(new Date(y,m+1,0).getDate()).padStart(2,'0')}`]; } },
+            { label: '7 วันล่าสุด', f: () => { const d = new Date(); d.setDate(d.getDate()-6); return [d.toISOString().split('T')[0], today]; } },
+          ].map(p => (
+            <button key={p.label} type="button" onClick={() => { const [f, t] = p.f(); setFrom(f); setTo(t); }}
+              className="text-xs px-2.5 py-1 rounded-lg border border-ink-200 hover:border-flow-400 hover:bg-flow-50">{p.label}</button>
+          ))}
+        </div>
+
+        <div className="border border-ink-200 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-ink-50 border-b border-ink-100">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={allSel} onChange={toggleAll} className="rounded border-ink-300 text-flow-600" />
+              เลือกทั้งหมด ({visibleEmps.length})
+            </label>
+            <span className="text-xs text-ink-500">{selected.length > 0 ? `เลือก ${selected.length} คน` : 'ไม่เลือก = ทุกคน'}</span>
+          </div>
+          <div className="p-2">
+            <Input icon="search" placeholder="ค้นหาพนักงาน..." value={search} onChange={(e) => setSearch(e.target.value)} className="mb-2 !py-1.5 text-sm" />
+            <div className="max-h-52 overflow-y-auto space-y-0.5">
+              {visibleEmps.map(e => (
+                <label key={e.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-ink-50 cursor-pointer text-sm">
+                  <input type="checkbox" checked={selected.includes(e.id)} onChange={() => toggle(e.id)} className="rounded border-ink-300 text-flow-600" />
+                  <span className="text-ink-800">{e.firstName} {e.lastName}{e.nickname ? ` (${e.nickname})` : ''}</span>
+                  <span className="text-xs text-ink-400 ml-auto">{e.id}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-flow-50 border border-flow-200 rounded-xl p-3 text-xs text-ink-700">
+          ไฟล์ Excel จะมี 2 ชีต: <strong>สรุปรวม</strong> (จำนวนวันแต่ละสถานะรายคน) + <strong>รายละเอียด</strong> (รายวันทุกคน)
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
+          <Button variant="secondary" onClick={onClose}>ยกเลิก</Button>
+          <Button icon="download" onClick={doExport}>ส่งออก Excel</Button>
+        </div>
+      </div>
+    </Modal>
   );
 };
 
@@ -5309,6 +5468,7 @@ const PayrollPage = () => {
   const [editing, setEditing] = useState(null);
   const [slip, setSlip] = useState(null);
   const [selected, setSelected] = useState([]);   // id ที่เลือกพิมพ์รวม
+  const [showSummary, setShowSummary] = useState(false);  // modal export สรุป
 
   const myEmp = employees.find(e => e.id === user.empId);
   const hasPayrollAccess = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
@@ -5384,7 +5544,10 @@ const PayrollPage = () => {
         title="เงินเดือน"
         subtitle={`รอบ ${monthLabel} · ${stats.count} รายการ`}
         action={canEdit && (
-          <Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มเงินเดือน</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" icon="download" onClick={() => setShowSummary(true)}>Export สรุป</Button>
+            <Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มเงินเดือน</Button>
+          </div>
         )}
       />
 
@@ -5529,11 +5692,149 @@ const PayrollPage = () => {
         branches={branches}
         settings={settings}
       />
+
+      <ExportPayrollSummaryModal
+        open={showSummary}
+        onClose={() => setShowSummary(false)}
+        payroll={payroll}
+        employees={employees}
+        branches={branches}
+        defaultMonth={month}
+        lockedBranch={user.role === 'manager' ? user.branchId : null}
+      />
     </div>
   );
 };
 
-/* ===== PAYROLL FORM MODAL ===== */
+/* ===== EXPORT PAYROLL SUMMARY MODAL — ส่งออกสรุปเงินเดือนรายคน ===== */
+const ExportPayrollSummaryModal = ({ open, onClose, payroll, employees, branches, defaultMonth, lockedBranch }) => {
+  const [month, setMonth] = useState(defaultMonth);
+  const [branch, setBranch] = useState(lockedBranch || 'all');
+  const [selected, setSelected] = useState([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => { setMonth(defaultMonth); }, [defaultMonth, open]);
+  useEffect(() => { if (lockedBranch) setBranch(lockedBranch); }, [lockedBranch]);
+
+  if (!open) return null;
+
+  // record เงินเดือนของเดือนที่เลือก (ตาม branch)
+  const monthRecs = payroll.filter(p => {
+    const pMonth = p.periodFrom ? String(p.periodFrom).slice(0, 7) : p.period;
+    if (pMonth !== month) return false;
+    const emp = employees.find(e => e.id === p.employeeId);
+    if (!emp) return false;
+    if (branch !== 'all' && emp.branchId !== branch) return false;
+    return true;
+  });
+
+  const visibleRecs = monthRecs.filter(p => {
+    if (!search) return true;
+    const emp = employees.find(e => e.id === p.employeeId);
+    const q = search.toLowerCase();
+    return emp && (`${emp.firstName} ${emp.lastName}`.toLowerCase().includes(q) || emp.id.toLowerCase().includes(q));
+  });
+
+  const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const allSel = visibleRecs.length > 0 && visibleRecs.every(p => selected.includes(p.id));
+  const toggleAll = () => setSelected(allSel ? selected.filter(id => !visibleRecs.some(p => p.id === id)) : [...new Set([...selected, ...visibleRecs.map(p => p.id)])]);
+
+  const doExport = () => {
+    const targetRecs = selected.length > 0 ? monthRecs.filter(p => selected.includes(p.id)) : monthRecs;
+    if (targetRecs.length === 0) { alert('ไม่มีข้อมูลเงินเดือนให้ส่งออก'); return; }
+
+    const XLSXlib = window.XLSX;
+    const header = ['รหัส', 'ชื่อ-นามสกุล', 'สาขา', 'รอบ', 'รายได้รวม', 'รายการหัก', 'เงินรับสุทธิ'];
+    let totalEarn = 0, totalDeduct = 0, totalNet = 0;
+    const rows = targetRecs.map(p => {
+      const emp = employees.find(e => e.id === p.employeeId);
+      const br = branches.find(b => b.id === emp?.branchId);
+      const c = calcPayroll(p);
+      totalEarn += c.earnings; totalDeduct += c.deductions; totalNet += c.net;
+      const periodLabel = (p.periodFrom && p.periodTo) ? `${p.periodFrom} ถึง ${p.periodTo}` : p.period;
+      return [emp?.id || p.employeeId, emp ? `${emp.firstName} ${emp.lastName}` : '-', br?.name || '-', periodLabel,
+        c.earnings, c.deductions, c.net];
+    });
+    // แถวรวม
+    rows.push(['', '', '', 'รวมทั้งหมด', totalEarn, totalDeduct, totalNet]);
+
+    const ws = XLSXlib.utils.aoa_to_sheet([header, ...rows]);
+    ws['!cols'] = [{wch:10},{wch:24},{wch:16},{wch:22},{wch:14},{wch:14},{wch:14}];
+    const wb = XLSXlib.utils.book_new();
+    XLSXlib.utils.book_append_sheet(wb, ws, 'สรุปเงินเดือน');
+    const brName = branch === 'all' ? 'ทุกสาขา' : (branches.find(b => b.id === branch)?.name || branch);
+    XLSXlib.writeFile(wb, `สรุปเงินเดือน_${brName}_${month}.xlsx`);
+    onClose();
+  };
+
+  const summary = visibleRecs.reduce((acc, p) => {
+    const c = calcPayroll(p);
+    acc.net += c.net; return acc;
+  }, { net: 0 });
+
+  return (
+    <Modal open={open} onClose={onClose} title="ส่งออกสรุปเงินเดือน" size="lg">
+      <div className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">เดือน</label>
+            <Input type="month" value={month} onChange={(e) => { setMonth(e.target.value); setSelected([]); }} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+            <Select value={branch} onChange={(e) => { setBranch(e.target.value); setSelected([]); }} disabled={!!lockedBranch}>
+              {!lockedBranch && <option value="all">ทุกสาขา</option>}
+              {branches.filter(b => !lockedBranch || b.id === lockedBranch).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </div>
+        </div>
+
+        {monthRecs.length === 0 ? (
+          <div className="bg-ink-50 rounded-xl p-6 text-center text-sm text-ink-400">ไม่มีข้อมูลเงินเดือนในเดือน/สาขานี้</div>
+        ) : (
+          <>
+            <div className="border border-ink-200 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 bg-ink-50 border-b border-ink-100">
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                  <input type="checkbox" checked={allSel} onChange={toggleAll} className="rounded border-ink-300 text-flow-600" />
+                  เลือกทั้งหมด ({visibleRecs.length})
+                </label>
+                <span className="text-xs text-ink-500">{selected.length > 0 ? `เลือก ${selected.length} คน` : 'ไม่เลือก = ทุกคน'}</span>
+              </div>
+              <div className="p-2">
+                <Input icon="search" placeholder="ค้นหาพนักงาน..." value={search} onChange={(e) => setSearch(e.target.value)} className="mb-2 !py-1.5 text-sm" />
+                <div className="max-h-52 overflow-y-auto space-y-0.5">
+                  {visibleRecs.map(p => {
+                    const emp = employees.find(e => e.id === p.employeeId);
+                    if (!emp) return null;
+                    const c = calcPayroll(p);
+                    return (
+                      <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-ink-50 cursor-pointer text-sm">
+                        <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} className="rounded border-ink-300 text-flow-600" />
+                        <span className="text-ink-800">{emp.firstName} {emp.lastName}</span>
+                        <span className="ml-auto font-display font-semibold text-ink-900">{fmtMoney(c.net)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 flex justify-between items-center">
+              <span className="text-sm text-ink-700">ยอดสุทธิรวม ({visibleRecs.length} คน)</span>
+              <span className="font-display text-xl font-bold text-brand-700">{fmtMoney(summary.net)} ฿</span>
+            </div>
+          </>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
+          <Button variant="secondary" onClick={onClose}>ยกเลิก</Button>
+          <Button icon="download" onClick={doExport} disabled={monthRecs.length === 0}>ส่งออก Excel</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
 const PayrollFormModal = ({ open, onClose, editing, onSave, employees, defaultPeriod, attendance, leaves, leaveTypes, settings }) => {
   const [form, setForm] = useState({});
   const [autoInfo, setAutoInfo] = useState(null);  // ผลการคำนวณอัตโนมัติ
