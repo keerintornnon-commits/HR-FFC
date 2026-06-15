@@ -767,16 +767,26 @@ const attStatusInfo = (status, leaveType, leaveTypes, opts) => {
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const fmtMoney = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// คำนวณค่าปรับมาสายจากนาทีที่สาย (นับจาก 08:05 — ผ่านการผ่อนผันมาแล้วใน lateMinutesOf)
-// lateMinutes > 0 = เข้างานเลย 08:05 = สายแล้ว ต้องหัก
-// 1-15 นาที (เข้า 08:06-08:20) = 20 บาท · เกิน 15 นาที = 50 บาท/ชั่วโมง (สูงสุด 3 ชม. = 150)
-const calcLateFine = (lateMinutes) => {
-  const m = Number(lateMinutes) || 0;
-  if (m <= 0) return 0;            // ไม่สาย (เข้าก่อน/ทัน 08:05)
-  if (m <= 15) return 20;          // สาย 1-15 นาที (เข้า 08:06-08:20) = 20 บาท
-  // เกิน 15 นาที = 50 บาท/ชั่วโมง (ปัดขึ้นทุกชั่วโมง) สูงสุด 3 ชั่วโมง — ไม่บวก 20 จากช่วงก่อน
-  const hours = Math.min(3, Math.ceil(m / 60));
-  return hours * 50;
+// คำนวณค่าปรับมาสายตามช่วงเวลาเข้างานจริง (ไม่บวกสะสม — แต่ละช่วงคิดเรทเดียว)
+// 08:06-08:15 = 20 · 08:16-09:00 = 50 · 09:01-10:00 = 100 · 10:01-11:00 = 150 · หลัง 11:00 = 150 (เพดาน)
+// รับค่าได้ทั้งเวลาเข้างาน (HH:MM) หรือ นาทีที่สายจาก 08:00 (ตัวเลข)
+const calcLateFine = (input) => {
+  // แปลง input → นาทีนับจาก 08:00
+  let minFromStart;
+  if (typeof input === 'number') {
+    // เดิมส่งเป็น "นาทีสายจาก 08:05" → บวก 5 กลับเป็นนาทีจาก 08:00
+    minFromStart = input > 0 ? input + 5 : 0;
+  } else {
+    const ci = normTime(input);
+    if (!ci) return 0;
+    const [h, m] = ci.split(':').map(Number);
+    minFromStart = (h * 60 + m) - (8 * 60);   // นาทีหลัง 08:00
+  }
+  if (minFromStart <= 5) return 0;             // เข้าก่อน/ทัน 08:05 = ไม่สาย
+  if (minFromStart <= 15) return 20;           // 08:06 - 08:15
+  if (minFromStart <= 60) return 50;           // 08:16 - 09:00
+  if (minFromStart <= 120) return 100;         // 09:01 - 10:00
+  return 150;                                  // 10:01 เป็นต้นไป (เพดาน)
 };
 
 // คำนวณนาทีที่สายจากเวลาเข้างาน เทียบ workStart + ผ่อนผัน
@@ -1210,7 +1220,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. NEW 15/06/2569
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
               </div>
             </div>
           </Card>
@@ -5362,7 +5372,7 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     // เช็คจากเวลาเข้างานจริง (ครอบคลุม late, partial, nocheckout ที่เข้าสาย)
     if (['late', 'partial', 'nocheckout'].includes(a.status) && a.checkIn) {
       const lm = lateMinutesOf(a.checkIn);
-      const fine = calcLateFine(lm);
+      const fine = calcLateFine(a.checkIn);   // ส่งเวลาเข้างานตรงๆ เพื่อ map ช่วงให้แม่น
       if (fine > 0) { lateFine += fine; lateDetails.push({ date: toYMD(a.date), minutes: lm, fine }); }
     }
   });
