@@ -421,7 +421,7 @@ const CONFIG = {
   // วาง Web App URL ของ Google Apps Script ที่นี่ (เชื่อมต่ออัตโนมัติทุกครั้งที่เปิด)
   // ถ้าตั้งผ่านหน้า "ตั้งค่า" ในเว็บ จะใช้ค่าจาก localStorage แทน
   apiUrl: (() => {
-    const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwmPBAlshxd0_vAUSXnnPmV0HDgyQeKd7963005eUaqBroZzQp5ivfLvIwtY5xZS48A/exec';
+    const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxTAYsrZx0PaEDYOx7NoNBPd1ncVRvWf5lTS0A42eJfIDdDl6VPZSUZ5MB4GchmlLur/exec';
     try { return localStorage.getItem('ffc_api_url') || DEFAULT_URL; } catch { return DEFAULT_URL; }
   })(),
 };
@@ -1220,7 +1220,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.16/06/69
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
               </div>
             </div>
           </Card>
@@ -2536,7 +2536,7 @@ const EmployeeProfileModal = ({ employee, onClose, attendance, leaves, leaveType
                         const sc = Number(r.scores?.[it.id]) || 0;
                         return (
                           <div key={it.id} className="flex items-center gap-2 text-sm">
-                            <span className="text-ink-600 flex-1 truncate">{it.indicator} <span className="text-ink-400 text-xs">({it.weight}%{it.targetType ? ` · เป้า ${fmtKpiTarget(it)}` : ''})</span></span>
+                            <span className="text-ink-600 flex-1 truncate">{it.name || it.indicator} <span className="text-ink-400 text-xs">({it.weight}%{it.target ? ` · เป้า ${it.target}` : ''})</span></span>
                             <div className="w-24 h-1.5 bg-ink-100 rounded-full overflow-hidden">
                               <div className="h-full rounded-full" style={{ width: `${sc}%`, background: g.color }} />
                             </div>
@@ -6449,6 +6449,12 @@ const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
    KPI — ประเมินผลงานพนักงาน
    ============================================================= */
 // แปลงคะแนน % เป็นเกรด
+/* ═══════════════════════════════════════════════════════════
+   KPI MODULE — ระบบประเมิน KPI พนักงาน (แบบ A: กรอก % ที่ทำได้)
+   โครงสร้าง: สาขา → ตำแหน่ง(template) → หมวด → KPI ย่อย
+═══════════════════════════════════════════════════════════ */
+
+// เกรด (ทุกตำแหน่งใช้เกณฑ์เดียวกัน)
 const kpiGrade = (pct) => {
   if (pct >= 90) return { grade: 'A', label: 'ดีเยี่ยม', color: '#10B981' };
   if (pct >= 80) return { grade: 'B', label: 'ดี', color: '#06B6D4' };
@@ -6457,69 +6463,90 @@ const kpiGrade = (pct) => {
   return { grade: 'F', label: 'ไม่ผ่าน', color: '#EF4444' };
 };
 
-// คำนวณคะแนนรวมของ record (ถ่วงน้ำหนัก) — ใช้หัวข้อที่เก็บอยู่ใน record เอง
-// รองรับ record เก่าที่ยังไม่มี criteria (fallback ไปใช้ criteria ที่ส่งเข้ามา)
-// flatten หัวข้อ KPI → รายการตัวชี้วัดที่ให้คะแนนได้ (รองรับทั้งแบบ 2 ระดับ และแบบเก่า)
-const flattenKpi = (criteria) => {
+// ── ประเภทสาขาตามการผลิต ──
+// production = ผลิต+คลัง+ขาย (ครบ 14 ตำแหน่ง) · nonProduction = คลัง+ขาย (ซ่อนฝ่ายผลิต)
+const KPI_BRANCH_TYPES = {
+  production: ['โกสุมพิสัย', 'ลำลูกกา', 'LLK', 'ISN'],   // ใช้ครบทุกตำแหน่ง
+  nonProduction: ['ลำปาง', 'NRT'],                       // ไม่มีฝ่ายผลิต
+};
+const kpiBranchType = (branchName, branchId) => {
+  const n = String(branchName || '');
+  if (KPI_BRANCH_TYPES.nonProduction.some(x => n.includes(x) || branchId === x)) return 'nonProduction';
+  return 'production';
+};
+
+// ตำแหน่งฝ่ายผลิต (ซ่อนในสาขาที่ไม่ผลิต)
+const KPI_PRODUCTION_POSITIONS = [
+  'หัวหน้าฝ่ายเย็บ', 'พนักงานเย็บ',
+  'หัวหน้าโต๊ะตัด', 'พนักงานโต๊ะตัด',
+  'หัวหน้า QC', 'พนักงาน QC',
+];
+
+// flatten template → รายการ KPI ย่อยทั้งหมด (ข้ามหมวด)
+const flattenKpi = (categories) => {
   const items = [];
-  (criteria || []).forEach(cat => {
-    if (cat.subItems && cat.subItems.length > 0) {
-      cat.subItems.forEach(s => items.push({ ...s, catId: cat.id, catName: cat.name, catWeight: cat.weight }));
-    } else {
-      // แบบเก่า: หัวข้อเดียวไม่มีย่อย
-      items.push({ id: cat.id, weight: cat.weight, indicator: cat.name, catId: cat.id, catName: cat.name, catWeight: cat.weight });
-    }
+  (categories || []).forEach(cat => {
+    (cat.items || []).forEach(it => items.push({ ...it, catId: cat.id, catName: cat.name, catWeight: cat.weight }));
   });
   return items;
 };
 
-// แสดงเป้าหมายเป็นข้อความ
-const fmtKpiTarget = (s) => {
-  if (!s) return '';
-  if (s.targetType === 'count') {
-    const unit = s.targetUnit === 'week' ? 'สัปดาห์' : 'เดือน';
-    return `${s.targetValue} ครั้ง/${unit}`;
+// แสดงเป้าหมายเป็นข้อความ (รองรับ operator ≥ ≤ = %)
+const fmtKpiTarget = (it) => {
+  if (!it) return '';
+  if (it.target) return String(it.target);   // เป้าหมายแบบข้อความอิสระ เช่น "≤ 0.5%", "≥ 80%"
+  if (it.targetType === 'count') {
+    const unit = it.targetUnit === 'week' ? 'สัปดาห์' : 'เดือน';
+    return `${it.targetValue} ครั้ง/${unit}`;
   }
-  if (s.targetType === 'percent') return `≥ ${s.targetValue}%`;
+  if (it.targetType === 'percent') return `≥ ${it.targetValue}%`;
   return '';
 };
 
-const calcKpiScore = (record, fallbackCriteria) => {
-  const criteria = (record.criteria && record.criteria.length > 0) ? record.criteria : (fallbackCriteria || []);
-  const items = flattenKpi(criteria);
+// คำนวณคะแนนรวม (แบบ A): คะแนนข้อ = (% ที่ทำได้ ÷ 100) × น้ำหนัก, รวม = ผลรวม
+const calcKpiScore = (record, fallbackCategories) => {
+  const cats = (record.categories && record.categories.length > 0) ? record.categories : (fallbackCategories || []);
+  const items = flattenKpi(cats);
   let totalWeight = 0, weightedScore = 0;
   items.forEach(it => {
-    const score = Number(record.scores?.[it.id]) || 0;  // 0-100
+    const pctDone = Number(record.scores?.[it.id]) || 0;   // % ที่ทำได้ 0-100
     const weight = Number(it.weight) || 0;
     totalWeight += weight;
-    weightedScore += (score * weight) / 100;
+    weightedScore += (pctDone / 100) * weight;             // คะแนนถ่วงน้ำหนัก
   });
+  // คะแนนรวม = ผลรวมคะแนนถ่วงน้ำหนัก (เต็ม = totalWeight ซึ่งควร 100)
   const pct = totalWeight > 0 ? Math.round((weightedScore / totalWeight) * 100) : 0;
-  return { pct, totalWeight, criteria, items };
+  return { pct, totalWeight, score: Math.round(weightedScore * 10) / 10, categories: cats, items };
 };
 
+// รวมน้ำหนักทุกข้อใน template (ต้อง = 100)
+const kpiTotalWeight = (categories) => flattenKpi(categories).reduce((s, it) => s + (Number(it.weight) || 0), 0);
+
+
+/* ───────────────── KPI PAGE ───────────────── */
 const KpiPage = () => {
   const { kpiCriteria, setKpiCriteria, kpiRecords, setKpiRecords, employees, branches, user, addToast } = useApp();
-  const [tab, setTab] = useState('eval');   // eval / criteria
+  const [tab, setTab] = useState('eval');           // eval | templates
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [search, setSearch] = useState('');
   const [openEval, setOpenEval] = useState(false);
   const [editingEval, setEditingEval] = useState(null);
-  const [openCrit, setOpenCrit] = useState(false);
-  const [editingCrit, setEditingCrit] = useState(null);
+  const [openTpl, setOpenTpl] = useState(false);
+  const [editingTpl, setEditingTpl] = useState(null);
+  const [viewRec, setViewRec] = useState(null);
 
   const canEdit = user.role === 'admin' || user.role === 'hr' || user.role === 'manager';
-
-  // ผู้จัดการภาค (regional) — ประเมินได้เฉพาะภาคตัวเอง
   const myEmp = employees.find(e => e.id === user.empId);
   const myScope = myEmp?.approvalScope || (myEmp?.canApprove ? 'manager' : 'none');
   const isRegional = myScope === 'regional';
   const lockedBranch = (user.role === 'manager' || isRegional) ? (user.branchId || myEmp?.branchId) : null;
   const canEvaluate = canEdit || isRegional;
 
-  // record ของรอบที่เลือก
+  // templates = kpiCriteria (แต่ละตัว = {id, position, branchType, evaluator, categories[]})
+  const templates = kpiCriteria || [];
+
   const periodRecords = useMemo(() => {
-    return kpiRecords.filter(r => {
+    return (kpiRecords || []).filter(r => {
       if (r.period !== period) return false;
       const emp = employees.find(e => e.id === r.employeeId);
       if (!emp) return false;
@@ -6530,65 +6557,58 @@ const KpiPage = () => {
       }
       return true;
     });
-  }, [kpiRecords, period, search, employees, user, lockedBranch]);
+  }, [kpiRecords, period, search, employees, lockedBranch]);
 
-  const totalWeight = kpiCriteria.reduce((s, c) => s + (Number(c.weight) || 0), 0);
+  const stats = useMemo(() => {
+    if (periodRecords.length === 0) return { count: 0, avg: 0, pass: 0 };
+    const scores = periodRecords.map(r => calcKpiScore(r).pct);
+    return {
+      count: periodRecords.length,
+      avg: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
+      pass: scores.filter(s => s >= 60).length,
+    };
+  }, [periodRecords]);
 
-  // ===== จัดการหัวข้อ KPI =====
-  const saveCriteria = (c) => {
+  const saveTemplate = (tpl) => {
     let updated;
-    if (editingCrit) {
-      updated = kpiCriteria.map(x => x.id === c.id ? c : x);
-      addToast('success', 'บันทึกหัวข้อเรียบร้อย');
+    if (templates.some(t => t.id === tpl.id)) {
+      updated = templates.map(t => t.id === tpl.id ? tpl : t);
+      addToast('success', 'บันทึก template เรียบร้อย');
     } else {
-      updated = [...kpiCriteria, c];
-      addToast('success', 'เพิ่มหัวข้อเรียบร้อย');
+      updated = [...templates, tpl];
+      addToast('success', 'เพิ่ม template เรียบร้อย');
     }
     setKpiCriteria(updated);
-    if (api.enabled()) api.post('saveKpiCriteria', { data: updated }).catch(e => addToast('error', 'บันทึกไม่สำเร็จ'));
-    setOpenCrit(false); setEditingCrit(null);
+    if (api.enabled()) api.post('saveKpiCriteria', { data: updated }).catch(() => addToast('error', 'บันทึกไม่สำเร็จ'));
+    setOpenTpl(false); setEditingTpl(null);
   };
-  const deleteCriteria = (id) => {
-    if (!confirm('ลบหัวข้อนี้? (ผลประเมินเดิมจะยังเก็บคะแนนไว้)')) return;
-    const updated = kpiCriteria.filter(c => c.id !== id);
+  const deleteTemplate = (id) => {
+    if (!confirm('ลบ template นี้?')) return;
+    const updated = templates.filter(t => t.id !== id);
     setKpiCriteria(updated);
     if (api.enabled()) api.post('saveKpiCriteria', { data: updated }).catch(() => {});
-  };
-
-  // ===== จัดการผลประเมิน =====
-  const saveEval = (rec) => {
-    let updated;
-    if (editingEval) {
-      updated = kpiRecords.map(x => x.id === rec.id ? rec : x);
-      addToast('success', 'บันทึกผลประเมินเรียบร้อย');
-    } else {
-      const dup = kpiRecords.find(x => x.employeeId === rec.employeeId && x.period === rec.period);
-      if (dup) { addToast('error', 'มีผลประเมินของพนักงานคนนี้ในรอบนี้แล้ว'); return; }
-      updated = [...kpiRecords, rec];
-      addToast('success', 'เพิ่มผลประเมินเรียบร้อย');
-    }
-    setKpiRecords(updated);
-    if (api.enabled()) api.post('saveKpiRecord', { data: rec }).catch(e => addToast('error', 'บันทึกไม่สำเร็จ'));
-    setOpenEval(false); setEditingEval(null);
-  };
-  const deleteEval = (id) => {
-    if (!confirm('ยืนยันการลบผลประเมินนี้?')) return;
-    setKpiRecords(kpiRecords.filter(r => r.id !== id));
-    if (api.enabled()) api.post('deleteKpiRecord', { id }).catch(() => {});
     addToast('success', 'ลบเรียบร้อย');
   };
 
-  // สถิติรอบนี้
-  const stats = useMemo(() => {
-    if (periodRecords.length === 0) return { count: 0, avg: 0, top: null };
-    let sum = 0, top = null, topScore = -1;
-    periodRecords.forEach(r => {
-      const { pct } = calcKpiScore(r, kpiCriteria);
-      sum += pct;
-      if (pct > topScore) { topScore = pct; top = { r, pct }; }
-    });
-    return { count: periodRecords.length, avg: Math.round(sum / periodRecords.length), top };
-  }, [periodRecords, kpiCriteria]);
+  const saveRecord = (rec) => {
+    let updated;
+    if ((kpiRecords || []).some(x => x.id === rec.id)) {
+      updated = kpiRecords.map(x => x.id === rec.id ? rec : x);
+      addToast('success', 'บันทึกผลประเมินเรียบร้อย');
+    } else {
+      updated = [...(kpiRecords || []), rec];
+      addToast('success', 'เพิ่มผลประเมินเรียบร้อย');
+    }
+    setKpiRecords(updated);
+    if (api.enabled()) api.post('saveKpiRecord', { data: rec }).catch(() => addToast('error', 'บันทึกไม่สำเร็จ'));
+    setOpenEval(false); setEditingEval(null);
+  };
+  const deleteRecord = (id) => {
+    if (!confirm('ลบผลประเมินนี้?')) return;
+    setKpiRecords((kpiRecords || []).filter(r => r.id !== id));
+    if (api.enabled()) api.post('deleteKpiRecord', { id }).catch(() => {});
+    addToast('success', 'ลบเรียบร้อย');
+  };
 
   const [py, pm] = period.split('-');
   const periodLabel = `${THAI_MONTHS[parseInt(pm,10)-1]} ${parseInt(py,10)+543}`;
@@ -6597,364 +6617,453 @@ const KpiPage = () => {
     <div className="p-8 space-y-6 animate-fade-up">
       <Topbar
         title="ประเมิน KPI"
-        subtitle={`รอบ ${periodLabel} · ${periodRecords.length} คน`}
-        action={canEvaluate && tab === 'eval' && (
-          <Button icon="plus" onClick={() => { setEditingEval(null); setOpenEval(true); }}>
-            ประเมินพนักงาน
-          </Button>
+        subtitle="ระบบประเมินผลการปฏิบัติงานพนักงาน"
+        action={canEvaluate && (
+          <div className="flex gap-2">
+            {tab === 'eval'
+              ? <Button icon="plus" onClick={() => { setEditingEval(null); setOpenEval(true); }}>ประเมินพนักงาน</Button>
+              : canEdit && <Button icon="plus" onClick={() => { setEditingTpl(null); setOpenTpl(true); }}>เพิ่มตำแหน่ง</Button>}
+          </div>
         )}
       />
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 bg-ink-100 p-1 rounded-xl w-fit">
-        {[
-          { id: 'eval', label: 'ผลการประเมิน', icon: 'target' },
-          { id: 'criteria', label: 'คลังหัวข้อ', icon: 'settings' },
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={cls('inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
-              tab === t.id ? 'bg-white text-brand-700 shadow-soft' : 'text-ink-600')}>
-            <Icon name={t.icon} className="w-4 h-4" /> {t.label}
+      <div className="flex gap-1 bg-ink-100 p-1 rounded-xl w-fit">
+        {[['eval','ผลการประเมิน'],['templates','คลังตำแหน่ง KPI']].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={cls('px-4 py-2 rounded-lg text-sm font-medium transition-colors', tab === id ? 'bg-white text-brand-700 shadow-soft' : 'text-ink-600 hover:text-ink-900')}>
+            {label}
           </button>
         ))}
       </div>
 
       {tab === 'eval' ? (
         <>
-          <>
-            <>
-              {/* Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                <Card className="p-5 lift">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-flow-100 text-flow-700 flex items-center justify-center"><Icon name="users" className="w-5 h-5" /></div>
-                    <div><div className="text-xs text-ink-500">ประเมินแล้ว</div><div className="font-display text-2xl font-bold text-ink-900">{stats.count} คน</div></div>
-                  </div>
-                </Card>
-                <Card className="p-5 lift">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center"><Icon name="chart" className="w-5 h-5" /></div>
-                    <div><div className="text-xs text-ink-500">คะแนนเฉลี่ย</div><div className="font-display text-2xl font-bold text-ink-900">{stats.avg}%</div></div>
-                  </div>
-                </Card>
-                <Card className="p-5 lift">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-gold-100 text-gold-700 flex items-center justify-center"><Icon name="target" className="w-5 h-5" /></div>
-                    <div>
-                      <div className="text-xs text-ink-500">คะแนนสูงสุด</div>
-                      <div className="font-display text-2xl font-bold text-ink-900">{stats.top ? `${stats.top.pct}%` : '-'}</div>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-
-              {/* Filter */}
-              <Card className="p-4">
-                <div className="grid md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs text-ink-500 mb-1">รอบประเมิน</label>
-                    <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs text-ink-500 mb-1">ค้นหา</label>
-                    <Input icon="search" placeholder="ชื่อ หรือ รหัสพนักงาน..." value={search} onChange={(e) => setSearch(e.target.value)} />
-                  </div>
+          {/* Stats + period */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} className="w-44" />
+            <div className="flex gap-3">
+              {[['ประเมินแล้ว', stats.count, 'flow'],['คะแนนเฉลี่ย', stats.avg + '%', 'brand'],['ผ่านเกณฑ์', `${stats.pass}/${stats.count}`, 'emerald']].map(([l, v, c]) => (
+                <div key={l} className="bg-white rounded-xl border border-ink-100 px-4 py-2 text-center">
+                  <div className="text-xs text-ink-500">{l}</div>
+                  <div className={cls('font-display text-xl font-bold', `text-${c}-700`)}>{v}</div>
                 </div>
-              </Card>
-
-              {/* Records */}
-              <Card className="overflow-hidden">
-                {periodRecords.length === 0 ? (
-                  <Empty icon="target" title="ยังไม่มีผลประเมิน" desc={`รอบ ${periodLabel} — คลิก "ประเมินพนักงาน"`} />
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-ink-50 text-ink-600 text-left">
-                        <tr>
-                          <th className="px-5 py-3 font-medium">พนักงาน</th>
-                          <th className="px-5 py-3 font-medium">คะแนนรวม</th>
-                          <th className="px-5 py-3 font-medium">เกรด</th>
-                          <th className="px-5 py-3 font-medium text-right">จัดการ</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-ink-100">
-                        {periodRecords.sort((a,b) => calcKpiScore(b,kpiCriteria).pct - calcKpiScore(a,kpiCriteria).pct).map(r => {
-                          const emp = employees.find(e => e.id === r.employeeId);
-                          if (!emp) return null;
-                          const { pct } = calcKpiScore(r, kpiCriteria);
-                          const g = kpiGrade(pct);
-                          return (
-                            <tr key={r.id} className="hover:bg-flow-50/40 transition-colors">
-                              <td className="px-5 py-3">
-                                <div className="flex items-center gap-3">
-                                  <Avatar name={`${emp.firstName} ${emp.lastName}`} photo={emp.photo} size="sm" />
-                                  <div>
-                                    <div className="font-medium text-ink-900">{emp.firstName} {emp.lastName}</div>
-                                    <div className="text-xs text-ink-500">{emp.id} · {emp.position}</div>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-5 py-3">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-28 h-2 bg-ink-100 rounded-full overflow-hidden">
-                                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: g.color }} />
-                                  </div>
-                                  <span className="font-display font-bold" style={{ color: g.color }}>{pct}%</span>
-                                </div>
-                              </td>
-                              <td className="px-5 py-3">
-                                <span className="inline-flex items-center gap-1.5">
-                                  <span className="w-7 h-7 rounded-lg flex items-center justify-center font-display font-bold text-white text-sm" style={{ background: g.color }}>{g.grade}</span>
-                                  <span className="text-sm text-ink-600">{g.label}</span>
-                                </span>
-                              </td>
-                              <td className="px-5 py-3 text-right">
-                                <div className="inline-flex gap-1">
-                                  {canEvaluate && (
-                                    <>
-                                      <button onClick={() => { setEditingEval(r); setOpenEval(true); }} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700" title="แก้ไข"><Icon name="edit" className="w-4 h-4" /></button>
-                                      <button onClick={() => deleteEval(r.id)} className="p-1.5 rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600" title="ลบ"><Icon name="trash" className="w-4 h-4" /></button>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </Card>
-            </>
-          </>
-        </>
-      ) : (
-        /* ===== แท็บคลังหัวข้อ ===== */
-        <>
-          <Card className="p-4 flex items-center justify-between">
-            <div className="text-sm text-ink-600">
-              น้ำหนักรวมทั้งหมด: <strong className={cls('font-display', totalWeight === 100 ? 'text-emerald-600' : 'text-gold-600')}>{totalWeight}%</strong>
-              {totalWeight !== 100 && <span className="text-xs text-gold-600 ml-2">(แนะนำให้รวมเป็น 100%)</span>}
-            </div>
-            {canEdit && <Button icon="plus" size="sm" onClick={() => { setEditingCrit(null); setOpenCrit(true); }}>เพิ่มหัวข้อ</Button>}
-          </Card>
-
-          {kpiCriteria.length === 0 ? (
-            <Card className="p-8"><Empty icon="target" title="ยังไม่มีหัวข้อประเมิน" desc="คลิก 'เพิ่มหัวข้อ' เพื่อกำหนดหัวข้องานที่ต้องการวัด" /></Card>
-          ) : (
-            <div className="grid md:grid-cols-2 gap-4">
-              {kpiCriteria.map((c, i) => (
-                <Card key={c.id} className="p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center font-display font-bold shrink-0">{i+1}</div>
-                      <div className="min-w-0">
-                        <div className="font-medium text-ink-900">{c.name}</div>
-                        <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-flow-50 text-flow-700 rounded-lg text-xs font-medium">น้ำหนัก {c.weight}%</div>
-                      </div>
-                    </div>
-                    {canEdit && (
-                      <div className="flex gap-1 shrink-0">
-                        <button onClick={() => { setEditingCrit(c); setOpenCrit(true); }} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700"><Icon name="edit" className="w-4 h-4" /></button>
-                        <button onClick={() => deleteCriteria(c.id)} className="p-1.5 rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600"><Icon name="trash" className="w-4 h-4" /></button>
-                      </div>
-                    )}
-                  </div>
-                  {/* หัวข้อย่อย */}
-                  {(c.subItems || []).length > 0 && (
-                    <div className="mt-3 pl-12 space-y-1.5">
-                      {c.subItems.map((s, si) => (
-                        <div key={s.id} className="text-xs border-l-2 border-ink-100 pl-3 py-0.5">
-                          <div className="font-medium text-ink-700">{si+1}. {s.indicator} <span className="text-ink-400">({s.weight}%)</span></div>
-                          <div className="text-ink-500 flex flex-wrap gap-x-3">
-                            {s.targetType && <span>เป้า: {fmtKpiTarget(s)}</span>}
-                            {s.method && <span>วิธีวัด: {s.method}</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
               ))}
             </div>
-          )}
+          </div>
+
+          <Input icon="search" placeholder="ค้นหาพนักงาน..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
+
+          <Card className="overflow-hidden">
+            {periodRecords.length === 0 ? (
+              <Empty icon="target" title="ยังไม่มีผลประเมิน" desc={`รอบ ${periodLabel} — คลิก "ประเมินพนักงาน" เพื่อเริ่ม`} />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-ink-50 text-ink-600 text-left">
+                    <tr>
+                      <th className="px-5 py-3 font-medium">พนักงาน</th>
+                      <th className="px-5 py-3 font-medium">ตำแหน่งที่ประเมิน</th>
+                      <th className="px-5 py-3 font-medium text-center">คะแนนรวม</th>
+                      <th className="px-5 py-3 font-medium text-center">เกรด</th>
+                      <th className="px-5 py-3 font-medium text-right">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-ink-100">
+                    {periodRecords.sort((a, b) => calcKpiScore(b).pct - calcKpiScore(a).pct).map(r => {
+                      const emp = employees.find(e => e.id === r.employeeId);
+                      if (!emp) return null;
+                      const { pct } = calcKpiScore(r);
+                      const g = kpiGrade(pct);
+                      return (
+                        <tr key={r.id} className="hover:bg-flow-50/40 cursor-pointer" onClick={() => setViewRec(r)}>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-3">
+                              <Avatar name={`${emp.firstName} ${emp.lastName}`} photo={emp.photo} size="sm" />
+                              <div>
+                                <div className="font-medium text-ink-900">{emp.firstName} {emp.lastName}</div>
+                                <div className="text-xs text-ink-500">{emp.id}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 text-ink-700">{r.positionName || '-'}</td>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center justify-center gap-2">
+                              <div className="w-20 h-1.5 bg-ink-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: g.color }} />
+                              </div>
+                              <span className="font-display font-bold" style={{ color: g.color }}>{pct}%</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 text-center">
+                            <span className="inline-flex w-8 h-8 rounded-lg items-center justify-center font-display font-bold text-white" style={{ background: g.color }}>{g.grade}</span>
+                          </td>
+                          <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="inline-flex gap-1">
+                              <button onClick={() => setViewRec(r)} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700" title="ดู"><Icon name="eye" className="w-4 h-4" /></button>
+                              {canEvaluate && <>
+                                <button onClick={() => { setEditingEval(r); setOpenEval(true); }} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700" title="แก้ไข"><Icon name="edit" className="w-4 h-4" /></button>
+                                <button onClick={() => deleteRecord(r.id)} className="p-1.5 rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600" title="ลบ"><Icon name="trash" className="w-4 h-4" /></button>
+                              </>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         </>
+      ) : (
+        /* ── คลังตำแหน่ง KPI ── */
+        <div className="grid md:grid-cols-2 gap-4">
+          {templates.length === 0 ? (
+            <div className="md:col-span-2">
+              <Empty icon="target" title="ยังไม่มีตำแหน่ง KPI" desc='คลิก "เพิ่มตำแหน่ง" เพื่อสร้าง template การประเมิน' />
+            </div>
+          ) : templates.map(tpl => {
+            const tw = kpiTotalWeight(tpl.categories);
+            return (
+              <Card key={tpl.id} className="p-5">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <div className="font-display font-semibold text-ink-900">{tpl.position}</div>
+                    <div className="text-xs text-ink-500 mt-0.5">
+                      {tpl.branchType === 'nonProduction' ? 'คลัง+ขาย (ไม่ผลิต)' : 'ผลิต+คลัง+ขาย'}
+                      {tpl.evaluator ? ` · ผู้ประเมิน: ${tpl.evaluator}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className={cls('text-xs font-medium px-2 py-0.5 rounded-lg', tw === 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-gold-50 text-gold-700')}>
+                      รวม {tw}%
+                    </span>
+                    {canEdit && <>
+                      <button onClick={() => { setEditingTpl(tpl); setOpenTpl(true); }} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700"><Icon name="edit" className="w-4 h-4" /></button>
+                      <button onClick={() => deleteTemplate(tpl.id)} className="p-1.5 rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600"><Icon name="trash" className="w-4 h-4" /></button>
+                    </>}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {(tpl.categories || []).map(cat => (
+                    <div key={cat.id} className="flex items-center justify-between text-xs bg-ink-50 rounded-lg px-3 py-1.5">
+                      <span className="font-medium text-ink-700">{cat.name}</span>
+                      <span className="text-ink-500">{(cat.items || []).length} ข้อ · {cat.items?.reduce((s,i)=>s+(Number(i.weight)||0),0)}%</span>
+                    </div>
+                  ))}
+                  {(tpl.categories || []).length === 0 && <div className="text-xs text-ink-400 text-center py-2">ยังไม่มีหมวด KPI</div>}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       )}
 
-      <KpiEvalModal
-        open={openEval}
-        onClose={() => { setOpenEval(false); setEditingEval(null); }}
-        editing={editingEval}
-        onSave={saveEval}
-        employees={employees.filter(e => (!lockedBranch || e.branchId === lockedBranch) && e.status !== 'inactive')}
-        criteria={kpiCriteria}
-        defaultPeriod={period}
-      />
-      <KpiCriteriaModal
-        open={openCrit}
-        onClose={() => { setOpenCrit(false); setEditingCrit(null); }}
-        editing={editingCrit}
-        onSave={saveCriteria}
-      />
+      <KpiTemplateModal open={openTpl} onClose={() => { setOpenTpl(false); setEditingTpl(null); }} editing={editingTpl} onSave={saveTemplate} />
+      <KpiEvalModal open={openEval} onClose={() => { setOpenEval(false); setEditingEval(null); }} editing={editingEval}
+        onSave={saveRecord} employees={employees.filter(e => (!lockedBranch || e.branchId === lockedBranch) && e.status !== 'inactive')}
+        templates={templates} branches={branches} defaultPeriod={period} />
+      {viewRec && <KpiViewModal record={viewRec} onClose={() => setViewRec(null)} employees={employees} branches={branches} />}
     </div>
   );
 };
 
-/* ===== KPI EVAL MODAL — ให้คะแนนพนักงานตามหัวข้อย่อย ===== */
-const KpiEvalModal = ({ open, onClose, editing, onSave, employees, criteria, defaultPeriod }) => {
+/* ───────────────── KPI TEMPLATE MODAL — สร้าง/แก้ตำแหน่ง ───────────────── */
+const KpiTemplateModal = ({ open, onClose, editing, onSave }) => {
   const [form, setForm] = useState({});
-  const [picker, setPicker] = useState(false);
+
+  useEffect(() => {
+    if (editing) setForm(JSON.parse(JSON.stringify(editing)));
+    else setForm({ id: '', position: '', branchType: 'production', evaluator: '', targetOverall: '', categories: [] });
+  }, [editing, open]);
+
+  if (!open) return null;
+
+  const cats = form.categories || [];
+  const totalW = kpiTotalWeight(cats);
+
+  const addCat = () => setForm(f => ({ ...f, categories: [...(f.categories||[]), { id: `CAT${Date.now()}${Math.floor(Math.random()*999)}`, name: '', items: [] }] }));
+  const updateCat = (cid, key, val) => setForm(f => ({ ...f, categories: f.categories.map(c => c.id === cid ? { ...c, [key]: val } : c) }));
+  const removeCat = (cid) => setForm(f => ({ ...f, categories: f.categories.filter(c => c.id !== cid) }));
+
+  const addItem = (cid) => setForm(f => ({ ...f, categories: f.categories.map(c => c.id === cid
+    ? { ...c, items: [...(c.items||[]), { id: `K${Date.now()}${Math.floor(Math.random()*999)}`, no: (c.items?.length||0)+1, name: '', indicator: '', target: '', weight: 0, method: '', note: '', warning: '' }] }
+    : c) }));
+  const updateItem = (cid, iid, key, val) => setForm(f => ({ ...f, categories: f.categories.map(c => c.id === cid
+    ? { ...c, items: c.items.map(it => it.id === iid ? { ...it, [key]: (key === 'weight') ? (Number(val)||0) : val } : it) }
+    : c) }));
+  const removeItem = (cid, iid) => setForm(f => ({ ...f, categories: f.categories.map(c => c.id === cid ? { ...c, items: c.items.filter(it => it.id !== iid) } : c) }));
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.position.trim()) return alert('กรุณาระบุชื่อตำแหน่ง');
+    if (totalW !== 100) {
+      if (!confirm(`น้ำหนักรวม = ${totalW}% (ไม่ครบ 100%) ต้องการบันทึกต่อหรือไม่?`)) return;
+    }
+    onSave({ ...form, id: form.id || `TPL${Date.now()}`, position: form.position.trim() });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={editing ? 'แก้ไขตำแหน่ง KPI' : 'เพิ่มตำแหน่ง KPI'} size="xl">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="grid md:grid-cols-3 gap-3 bg-brand-50 border border-brand-100 rounded-xl p-4">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ชื่อตำแหน่ง</label>
+            <Input value={form.position || ''} onChange={(e) => setForm({ ...form, position: e.target.value })} placeholder="เช่น ผู้จัดการสาขา, พนักงานขาย, หัวหน้า QC" required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ใช้กับสาขาแบบ</label>
+            <Select value={form.branchType} onChange={(e) => setForm({ ...form, branchType: e.target.value })}>
+              <option value="production">ผลิต+คลัง+ขาย (ทุกสาขา)</option>
+              <option value="nonProduction">คลัง+ขาย (ไม่ผลิต เช่น ลำปาง)</option>
+            </Select>
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้ประเมิน (ตำแหน่ง)</label>
+            <Input value={form.evaluator || ''} onChange={(e) => setForm({ ...form, evaluator: e.target.value })} placeholder="เช่น ผู้จัดการสาขา, หัวหน้าฝ่าย" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">เป้าหมายรวม</label>
+            <Input value={form.targetOverall || ''} onChange={(e) => setForm({ ...form, targetOverall: e.target.value })} placeholder="เช่น ≥ 80%" />
+          </div>
+        </div>
+
+        {/* หมวด + KPI */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-ink-700">หมวด KPI (RESULT, OPERATE, PLAN, วินัย ฯลฯ)</label>
+            <span className={cls('text-xs font-medium', totalW === 100 ? 'text-emerald-600' : 'text-gold-600')}>น้ำหนักรวมทุกข้อ: {totalW}% / 100%</span>
+          </div>
+
+          {cats.length === 0 ? (
+            <div className="bg-ink-50 rounded-xl p-4 text-center text-sm text-ink-400">ยังไม่มีหมวด — คลิก "เพิ่มหมวด"</div>
+          ) : (
+            <div className="space-y-3">
+              {cats.map((cat, ci) => {
+                const catW = (cat.items || []).reduce((s, i) => s + (Number(i.weight) || 0), 0);
+                return (
+                  <div key={cat.id} className="border border-ink-200 rounded-xl overflow-hidden">
+                    <div className="bg-brand-50 px-3 py-2 flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-lg bg-brand-200 text-brand-800 flex items-center justify-center text-xs font-bold shrink-0">{ci+1}</span>
+                      <Input value={cat.name} onChange={(e) => updateCat(cat.id, 'name', e.target.value)} placeholder="ชื่อหมวด เช่น RESULT (ผลงาน)" className="flex-1 !py-1.5 text-sm" />
+                      <span className="text-xs text-brand-700 font-medium shrink-0">{catW}%</span>
+                      <button type="button" onClick={() => removeCat(cat.id)} className="p-1 rounded-lg text-ink-400 hover:bg-red-50 hover:text-red-600 shrink-0"><Icon name="trash" className="w-4 h-4" /></button>
+                    </div>
+                    <div className="p-2 space-y-2">
+                      {(cat.items || []).map((it, ii) => (
+                        <div key={it.id} className="border border-ink-100 rounded-lg p-2.5 space-y-2 bg-ink-50/50">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-ink-400 shrink-0">{ci+1}.{ii+1}</span>
+                            <Input value={it.name} onChange={(e) => updateItem(cat.id, it.id, 'name', e.target.value)} placeholder="หัวข้อ KPI" className="flex-1 !py-1.5 text-sm" />
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Input type="number" min={0} max={100} value={it.weight} onChange={(e) => updateItem(cat.id, it.id, 'weight', e.target.value)} className="w-14 !py-1.5 text-sm text-center" />
+                              <span className="text-xs text-ink-400">%</span>
+                            </div>
+                            <button type="button" onClick={() => removeItem(cat.id, it.id)} className="p-1 rounded-lg text-ink-400 hover:bg-red-50 hover:text-red-600 shrink-0"><Icon name="trash" className="w-4 h-4" /></button>
+                          </div>
+                          <div className="grid md:grid-cols-3 gap-2 pl-6">
+                            <Input value={it.indicator} onChange={(e) => updateItem(cat.id, it.id, 'indicator', e.target.value)} placeholder="ตัวชี้วัด/วิธีการวัด" className="!py-1.5 text-xs" />
+                            <Input value={it.target} onChange={(e) => updateItem(cat.id, it.id, 'target', e.target.value)} placeholder="เป้าหมาย เช่น ≥80%, ≤0.5%" className="!py-1.5 text-xs" />
+                            <Input value={it.method} onChange={(e) => updateItem(cat.id, it.id, 'method', e.target.value)} placeholder="วิธีวัดผล" className="!py-1.5 text-xs" />
+                          </div>
+                          <div className="grid md:grid-cols-2 gap-2 pl-6">
+                            <Input value={it.note} onChange={(e) => updateItem(cat.id, it.id, 'note', e.target.value)} placeholder="คอมมิชชั่น/หมายเหตุ (ไม่คิดคะแนน)" className="!py-1.5 text-xs" />
+                            <Input value={it.warning} onChange={(e) => updateItem(cat.id, it.id, 'warning', e.target.value)} placeholder="⚠ ป้ายเตือน (ถ้ามี)" className="!py-1.5 text-xs" />
+                          </div>
+                        </div>
+                      ))}
+                      <Button type="button" variant="outline" size="sm" icon="plus" onClick={() => addItem(cat.id)}>เพิ่ม KPI ในหมวดนี้</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <Button type="button" variant="outline" size="sm" icon="plus" onClick={addCat} className="mt-3">เพิ่มหมวด</Button>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4 border-t border-ink-100">
+          <Button type="button" variant="secondary" onClick={onClose}>ยกเลิก</Button>
+          <Button type="submit" icon={editing ? 'check' : 'plus'}>{editing ? 'บันทึก' : 'เพิ่มตำแหน่ง'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+/* ───────────────── KPI EVAL MODAL — ประเมินพนักงาน (แบบ A: กรอก %) ───────────────── */
+const KpiEvalModal = ({ open, onClose, editing, onSave, employees, templates, branches, defaultPeriod }) => {
+  const [form, setForm] = useState({});
 
   useEffect(() => {
     if (editing) {
-      setForm({ ...editing, criteria: editing.criteria && editing.criteria.length ? editing.criteria : (criteria || []) });
+      setForm(JSON.parse(JSON.stringify(editing)));
     } else {
       setForm({
-        id: '', employeeId: employees[0]?.id || '', period: defaultPeriod,
-        criteria: [], scores: {}, note: '', evaluator: '', evalDate: new Date().toISOString().split('T')[0],
+        id: '', branchId: '', employeeId: '', templateId: '', positionName: '',
+        period: defaultPeriod, evaluator: '', evalDate: new Date().toISOString().split('T')[0],
+        categories: [], scores: {}, note: '',
       });
     }
-    setPicker(false);
   }, [editing, open, defaultPeriod]);
 
   if (!open) return null;
 
-  const myCriteria = form.criteria || [];
+  // สาขาที่เลือก → กำหนด branchType → กรองตำแหน่งที่ใช้ได้
+  const selectedBranch = branches.find(b => b.id === form.branchId);
+  const brType = selectedBranch ? kpiBranchType(selectedBranch.name, selectedBranch.id) : null;
+  // ตำแหน่งที่ใช้ได้กับสาขานี้: ถ้าสาขาไม่ผลิต → ซ่อน template ที่เป็น production-only ฝ่ายผลิต
+  const availableTemplates = templates.filter(t => {
+    if (!brType) return true;
+    if (brType === 'nonProduction') {
+      // ซ่อนตำแหน่งฝ่ายผลิต + template ที่ผูกกับ production เท่านั้น
+      if (KPI_PRODUCTION_POSITIONS.some(p => t.position.includes(p))) return false;
+    }
+    return true;
+  });
 
-  const setScore = (subId, val) => {
+  // พนักงานในสาขาที่เลือก
+  const branchEmps = employees.filter(e => !form.branchId || e.branchId === form.branchId);
+
+  // โหลด template → คัดลอก categories เข้า form
+  const loadTemplate = (tplId) => {
+    const tpl = templates.find(t => t.id === tplId);
+    if (!tpl) { setForm(f => ({ ...f, templateId: '', categories: [], positionName: '' })); return; }
+    setForm(f => ({
+      ...f, templateId: tplId, positionName: tpl.position,
+      evaluator: f.evaluator || tpl.evaluator || '',
+      categories: JSON.parse(JSON.stringify(tpl.categories || [])),
+    }));
+  };
+
+  const setScore = (itemId, val) => {
     const v = Math.max(0, Math.min(100, Number(val) || 0));
-    setForm(f => ({ ...f, scores: { ...f.scores, [subId]: v } }));
-  };
-  // เพิ่มหัวข้อใหญ่จากคลัง (พร้อมหัวข้อย่อยทั้งหมด)
-  const addCategory = (c) => {
-    if (myCriteria.some(x => x.id === c.id)) return;
-    setForm(f => ({ ...f, criteria: [...(f.criteria||[]), JSON.parse(JSON.stringify(c))] }));
-    setPicker(false);
-  };
-  const removeCategory = (id) => {
-    setForm(f => {
-      const cat = f.criteria.find(c => c.id === id);
-      const sc = { ...f.scores };
-      (cat?.subItems || []).forEach(s => delete sc[s.id]);
-      return { ...f, criteria: f.criteria.filter(c => c.id !== id), scores: sc };
-    });
+    setForm(f => ({ ...f, scores: { ...f.scores, [itemId]: v } }));
   };
 
-  const { pct, items } = calcKpiScore(form);
+  const { pct, score, items } = calcKpiScore(form);
   const g = kpiGrade(pct);
-  const totalWeight = items.reduce((s, it) => s + (Number(it.weight)||0), 0);
-  const availableLib = (criteria || []).filter(c => !myCriteria.some(x => x.id === c.id));
+  const totalWeight = items.reduce((s, it) => s + (Number(it.weight) || 0), 0);
 
   const submit = (e) => {
     e.preventDefault();
+    if (!form.branchId) return alert('กรุณาเลือกสาขา');
     if (!form.employeeId) return alert('กรุณาเลือกพนักงาน');
-    if (myCriteria.length === 0) return alert('กรุณาเพิ่มหัวข้อประเมินอย่างน้อย 1 หัวข้อ');
+    if (!form.templateId || items.length === 0) return alert('กรุณาเลือกตำแหน่งที่จะประเมิน');
     onSave({ ...form, id: form.id || `KPI${Date.now()}` });
   };
 
   return (
     <Modal open={open} onClose={onClose} title={editing ? 'แก้ไขผลประเมิน' : 'ประเมินพนักงาน'} size="xl">
       <form onSubmit={submit} className="space-y-4">
-        <div className="grid md:grid-cols-3 gap-3">
+        {/* เลือกสาขา → ตำแหน่ง → พนักงาน */}
+        <div className="grid md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">พนักงาน</label>
-            <Select value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} disabled={!!editing} required>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.id})</option>)}
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">1. เลือกสาขา</label>
+            <Select value={form.branchId} onChange={(e) => setForm(f => ({ ...f, branchId: e.target.value, employeeId: '', templateId: '', categories: [], positionName: '' }))} required disabled={!!editing}>
+              <option value="">— เลือกสาขา —</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+            {brType === 'nonProduction' && <p className="text-xs text-gold-600 mt-1">สาขานี้ไม่มีฝ่ายผลิต — ซ่อนตำแหน่งฝ่ายผลิต</p>}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">2. เลือกตำแหน่งที่ประเมิน</label>
+            <Select value={form.templateId} onChange={(e) => loadTemplate(e.target.value)} disabled={!form.branchId} required>
+              <option value="">— เลือกตำแหน่ง —</option>
+              {availableTemplates.map(t => <option key={t.id} value={t.id}>{t.position}</option>)}
             </Select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">รอบประเมิน</label>
-            <Input type="month" value={form.period || ''} onChange={(e) => setForm({ ...form, period: e.target.value })} required />
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">3. เลือกพนักงาน</label>
+            <Select value={form.employeeId} onChange={(e) => setForm(f => ({ ...f, employeeId: e.target.value }))} disabled={!form.branchId || !!editing} required>
+              <option value="">— เลือกพนักงาน —</option>
+              {branchEmps.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.id})</option>)}
+            </Select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้วัดผล / ผู้ประเมิน</label>
-            <Input value={form.evaluator || ''} onChange={(e) => setForm({ ...form, evaluator: e.target.value })} placeholder="ชื่อผู้ประเมิน" />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">รอบประเมิน</label>
+              <Input type="month" value={form.period || ''} onChange={(e) => setForm({ ...form, period: e.target.value })} required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้ประเมิน</label>
+              <Input value={form.evaluator || ''} onChange={(e) => setForm({ ...form, evaluator: e.target.value })} placeholder="ชื่อผู้ประเมิน" />
+            </div>
           </div>
         </div>
 
-        {/* เลือกหัวข้อจากคลัง */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-ink-700">หัวข้อประเมิน (เฉพาะพนักงานคนนี้)</label>
-            <span className={cls('text-xs font-medium', totalWeight === 100 ? 'text-emerald-600' : 'text-gold-600')}>น้ำหนักรวม {totalWeight}%</span>
-          </div>
-          <div className="relative mb-3">
-            <Button type="button" variant="outline" size="sm" icon="plus" onClick={() => setPicker(p => !p)}>เพิ่มหัวข้อจากคลัง</Button>
-            {picker && (
-              <div className="absolute top-10 left-0 z-20 w-72 bg-white rounded-xl shadow-xl border border-ink-100 max-h-60 overflow-y-auto">
-                {availableLib.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-ink-400 text-center">ไม่มีหัวข้อในคลัง (เพิ่มได้ที่แท็บ "คลังหัวข้อ")</div>
-                ) : availableLib.map(c => (
-                  <button key={c.id} type="button" onClick={() => addCategory(c)}
-                    className="w-full px-3 py-2 text-left hover:bg-flow-50 text-sm flex items-center justify-between">
-                    <span className="text-ink-800">{c.name}</span>
-                    <span className="text-xs text-ink-400">{c.weight}% · {(c.subItems||[]).length} ย่อย</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {myCriteria.length === 0 ? (
-            <div className="bg-ink-50 rounded-xl p-4 text-center text-sm text-ink-400">ยังไม่มีหัวข้อ — คลิก "เพิ่มหัวข้อจากคลัง"</div>
-          ) : (
-            <div className="space-y-4">
-              {myCriteria.map((cat) => (
-                <div key={cat.id} className="border border-ink-200 rounded-xl overflow-hidden">
-                  {/* หัวข้อใหญ่ */}
-                  <div className="bg-brand-50 px-4 py-2.5 flex items-center justify-between">
-                    <div className="font-medium text-brand-900">{cat.name} <span className="text-xs text-brand-600">({cat.weight}%)</span></div>
-                    <button type="button" onClick={() => removeCategory(cat.id)} className="p-1 rounded-lg text-ink-400 hover:bg-red-50 hover:text-red-600"><Icon name="trash" className="w-4 h-4" /></button>
-                  </div>
-                  {/* หัวข้อย่อย */}
-                  <div className="divide-y divide-ink-100">
-                    {(cat.subItems || [{ id: cat.id, indicator: cat.name, weight: cat.weight }]).map((s) => {
-                      const score = Number(form.scores?.[s.id]) || 0;
-                      return (
-                        <div key={s.id} className="px-4 py-3">
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium text-ink-900">{s.indicator}</div>
-                              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-ink-500 mt-0.5">
-                                {s.targetType && <span>เป้า: {fmtKpiTarget(s)}</span>}
-                                <span>น้ำหนัก {s.weight}%</span>
-                                {s.method && <span>วิธีวัด: {s.method}</span>}
+        {/* กรอกคะแนน */}
+        {items.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-ink-700">กรอก % ที่ทำได้ของแต่ละ KPI (0-100)</label>
+              <span className={cls('text-xs font-medium', totalWeight === 100 ? 'text-emerald-600' : 'text-gold-600')}>น้ำหนักรวม {totalWeight}%</span>
+            </div>
+            <div className="space-y-3">
+              {(form.categories || []).map(cat => {
+                const catW = (cat.items || []).reduce((s, i) => s + (Number(i.weight) || 0), 0);
+                return (
+                  <div key={cat.id} className="border border-ink-200 rounded-xl overflow-hidden">
+                    <div className="bg-brand-50 px-4 py-2 flex justify-between items-center">
+                      <span className="font-medium text-brand-900">{cat.name}</span>
+                      <span className="text-xs text-brand-600">{catW}%</span>
+                    </div>
+                    <div className="divide-y divide-ink-100">
+                      {(cat.items || []).map(it => {
+                        const pctDone = Number(form.scores?.[it.id]) || 0;
+                        const earned = Math.round((pctDone / 100) * (Number(it.weight) || 0) * 10) / 10;
+                        return (
+                          <div key={it.id} className="px-4 py-3">
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-ink-900">{it.name}</div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-ink-500 mt-0.5">
+                                  {it.indicator && <span>วัด: {it.indicator}</span>}
+                                  {it.target && <span>เป้า: {it.target}</span>}
+                                  <span>น้ำหนัก {it.weight}%</span>
+                                </div>
+                                {it.note && <div className="text-xs text-ink-400 mt-0.5">หมายเหตุ: {it.note}</div>}
+                                {it.warning && <div className="text-xs text-gold-700 bg-gold-50 rounded px-2 py-0.5 mt-1 inline-block">⚠ {it.warning}</div>}
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="font-display font-bold text-brand-700">{pctDone}%</div>
+                                <div className="text-xs text-ink-400">ได้ {earned}</div>
                               </div>
                             </div>
-                            <span className="font-display font-bold text-brand-700 text-lg shrink-0">{score}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <input type="range" min={0} max={100} step={5} value={score}
-                              onChange={(e) => setScore(s.id, e.target.value)} className="flex-1 accent-brand-600" />
-                            <div className="flex gap-1 shrink-0">
-                              {[60, 70, 80, 90, 100].map(v => (
-                                <button key={v} type="button" onClick={() => setScore(s.id, v)}
-                                  className="text-xs px-1.5 py-0.5 rounded border border-ink-200 hover:border-brand-400 hover:bg-brand-50">{v}</button>
-                              ))}
+                            <div className="flex items-center gap-3">
+                              <input type="range" min={0} max={100} step={5} value={pctDone} onChange={(e) => setScore(it.id, e.target.value)} className="flex-1 accent-brand-600" />
+                              <div className="flex gap-1 shrink-0">
+                                {[60,70,80,90,100].map(v => (
+                                  <button key={v} type="button" onClick={() => setScore(it.id, v)} className="text-xs px-1.5 py-0.5 rounded border border-ink-200 hover:border-brand-400 hover:bg-brand-50">{v}</button>
+                                ))}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* คะแนนรวม */}
-        <div className="rounded-xl p-4 flex items-center justify-between text-white" style={{ background: `linear-gradient(135deg, ${g.color}, ${g.color}dd)` }}>
-          <div>
-            <div className="text-sm opacity-90">คะแนนรวม (ถ่วงน้ำหนัก)</div>
-            <div className="font-display text-3xl font-bold">{pct}%</div>
+        {/* คะแนนรวม real-time */}
+        {items.length > 0 && (
+          <div className="rounded-xl p-4 flex items-center justify-between text-white" style={{ background: `linear-gradient(135deg, ${g.color}, ${g.color}dd)` }}>
+            <div>
+              <div className="text-sm opacity-90">คะแนนรวม (ถ่วงน้ำหนัก)</div>
+              <div className="font-display text-3xl font-bold">{pct}%</div>
+              <div className="text-xs opacity-80">ได้ {score} จาก {totalWeight} คะแนน</div>
+            </div>
+            <div className="text-right">
+              <div className="font-display text-4xl font-bold">{g.grade}</div>
+              <div className="text-sm opacity-90">{g.label}</div>
+            </div>
           </div>
-          <div className="text-right">
-            <div className="font-display text-4xl font-bold">{g.grade}</div>
-            <div className="text-sm opacity-90">{g.label}</div>
-          </div>
-        </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-ink-700 mb-1.5">ข้อเสนอแนะ</label>
@@ -6970,118 +7079,102 @@ const KpiEvalModal = ({ open, onClose, editing, onSave, employees, criteria, def
   );
 };
 
-/* ===== KPI CRITERIA MODAL — กำหนดหัวข้องาน ===== */
-const KpiCriteriaModal = ({ open, onClose, editing, onSave }) => {
-  const [form, setForm] = useState({});
-  useEffect(() => {
-    if (editing) setForm({ subItems: [], ...editing });
-    else setForm({ id: '', name: '', weight: 40, subItems: [] });
-  }, [editing, open]);
+/* ───────────────── KPI VIEW MODAL — ดูผลประเมิน + Export ───────────────── */
+const KpiViewModal = ({ record, onClose, employees, branches }) => {
+  const emp = employees.find(e => e.id === record.employeeId);
+  const branch = branches.find(b => b.id === record.branchId);
+  const { pct, score, items } = calcKpiScore(record);
+  const g = kpiGrade(pct);
+  const [ry, rm] = (record.period || '').split('-');
+  const periodLabel = rm ? `${THAI_MONTHS[parseInt(rm,10)-1]} ${parseInt(ry,10)+543}` : record.period;
 
-  if (!open) return null;
+  const exportExcel = () => {
+    const XLSXlib = window.XLSX;
+    const header = ['หมวด', 'ข้อ', 'หัวข้อ KPI', 'ตัวชี้วัด', 'เป้าหมาย', 'น้ำหนัก(%)', '% ที่ทำได้', 'คะแนนที่ได้', 'วิธีวัดผล', 'คอมมิชชั่น/หมายเหตุ'];
+    const rows = [];
+    (record.categories || []).forEach((cat, ci) => {
+      (cat.items || []).forEach((it, ii) => {
+        const pctDone = Number(record.scores?.[it.id]) || 0;
+        const earned = Math.round((pctDone / 100) * (Number(it.weight) || 0) * 10) / 10;
+        rows.push([cat.name, `${ci+1}.${ii+1}`, it.name, it.indicator || '', it.target || '', it.weight, pctDone, earned, it.method || '', it.note || '']);
+      });
+    });
+    rows.push(['', '', '', '', 'รวม', items.reduce((s,i)=>s+(Number(i.weight)||0),0), '', score, '', '']);
+    rows.push(['', '', '', '', 'คะแนนรวม', '', `${pct}%`, `เกรด ${g.grade}`, '', '']);
 
-  const subItems = form.subItems || [];
-  const subTotal = subItems.reduce((s, x) => s + (Number(x.weight) || 0), 0);
-
-  const addSub = () => {
-    setForm(f => ({ ...f, subItems: [...(f.subItems||[]), {
-      id: `SUB${Date.now()}${Math.floor(Math.random()*1000)}`,
-      indicator: '', targetType: 'percent', targetValue: 80, targetUnit: 'month', weight: 0, method: '',
-    }]}));
-  };
-  const updateSub = (id, key, val) => {
-    setForm(f => ({ ...f, subItems: f.subItems.map(s => s.id === id
-      ? { ...s, [key]: (key==='weight'||key==='targetValue') ? (Number(val)||0) : val } : s) }));
-  };
-  const removeSub = (id) => setForm(f => ({ ...f, subItems: f.subItems.filter(s => s.id !== id) }));
-
-  const submit = (e) => {
-    e.preventDefault();
-    if (!form.name.trim()) return alert('กรุณาระบุชื่อหัวข้อใหญ่');
-    if (subItems.length === 0) return alert('กรุณาเพิ่มหัวข้อย่อยอย่างน้อย 1 รายการ');
-    if (subItems.some(s => !s.indicator.trim())) return alert('กรุณาระบุตัวชี้วัดให้ครบทุกหัวข้อย่อย');
-    onSave({ ...form, id: form.id || `CAT${Date.now()}`, name: form.name.trim(), weight: Number(form.weight) || 0 });
+    const meta = [
+      ['แบบประเมิน KPI'],
+      ['พนักงาน', emp ? `${emp.firstName} ${emp.lastName}` : '', '', 'ตำแหน่ง', record.positionName || ''],
+      ['สาขา', branch?.name || '', '', 'รอบประเมิน', periodLabel],
+      ['ผู้ประเมิน', record.evaluator || '', '', 'วันที่', record.evalDate || ''],
+      [],
+    ];
+    const ws = XLSXlib.utils.aoa_to_sheet([...meta, header, ...rows]);
+    ws['!cols'] = [{wch:16},{wch:6},{wch:28},{wch:24},{wch:14},{wch:10},{wch:10},{wch:11},{wch:20},{wch:24}];
+    const wb = XLSXlib.utils.book_new();
+    XLSXlib.utils.book_append_sheet(wb, ws, 'KPI');
+    XLSXlib.writeFile(wb, `KPI_${emp?.firstName || ''}_${record.period}.xlsx`);
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'แก้ไขหัวข้อ KPI' : 'เพิ่มหัวข้อ KPI'} size="xl">
-      <form onSubmit={submit} className="space-y-4">
-        {/* หัวข้อใหญ่ */}
-        <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 grid md:grid-cols-3 gap-3">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">ชื่อหัวข้อใหญ่</label>
-            <Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="เช่น ด้านการขาย, ด้านคุณภาพงาน, ด้านพฤติกรรม" required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">น้ำหนักใหญ่ (%)</label>
-            <Input type="number" min={0} max={100} value={form.weight ?? ''} onChange={(e) => setForm({ ...form, weight: e.target.value })} required />
-          </div>
+    <Modal open={true} onClose={onClose} title="ผลประเมิน KPI" size="xl">
+      <div className="space-y-4">
+        {/* หัว */}
+        <div className="grid md:grid-cols-2 gap-3 bg-ink-50 rounded-xl p-4">
+          {[['พนักงาน', emp ? `${emp.firstName} ${emp.lastName}` : '-'],['ตำแหน่ง', record.positionName || '-'],['สาขา', branch?.name || '-'],['รอบ', periodLabel],['ผู้ประเมิน', record.evaluator || '-'],['วันที่', record.evalDate || '-']].map(([l, v]) => (
+            <div key={l} className="flex justify-between text-sm"><span className="text-ink-500">{l}</span><span className="font-medium text-ink-900">{v}</span></div>
+          ))}
         </div>
 
-        {/* หัวข้อย่อย */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-ink-700">หัวข้อย่อย / ตัวชี้วัด</label>
-            <span className={cls('text-xs font-medium', subTotal === Number(form.weight) ? 'text-emerald-600' : 'text-gold-600')}>
-              น้ำหนักย่อยรวม {subTotal}% / {form.weight || 0}%
-            </span>
-          </div>
+        {/* คะแนนรวม */}
+        <div className="rounded-xl p-4 flex items-center justify-between text-white" style={{ background: `linear-gradient(135deg, ${g.color}, ${g.color}dd)` }}>
+          <div><div className="text-sm opacity-90">คะแนนรวม</div><div className="font-display text-3xl font-bold">{pct}%</div></div>
+          <div className="text-right"><div className="font-display text-4xl font-bold">{g.grade}</div><div className="text-sm opacity-90">{g.label}</div></div>
+        </div>
 
-          {subItems.length === 0 ? (
-            <div className="bg-ink-50 rounded-xl p-4 text-center text-sm text-ink-400">ยังไม่มีหัวข้อย่อย — คลิก "เพิ่มหัวข้อย่อย"</div>
-          ) : (
-            <div className="space-y-3">
-              {subItems.map((s, i) => (
-                <div key={s.id} className="border border-ink-200 rounded-xl p-3 space-y-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-lg bg-flow-100 text-flow-700 flex items-center justify-center text-xs font-bold shrink-0">{i+1}</span>
-                    <Input value={s.indicator} onChange={(e) => updateSub(s.id, 'indicator', e.target.value)} placeholder="ตัวชี้วัด เช่น ยอดขายรายเดือน" className="flex-1 !py-1.5 text-sm" />
-                    <button type="button" onClick={() => removeSub(s.id)} className="p-1.5 rounded-lg text-ink-400 hover:bg-red-50 hover:text-red-600 shrink-0"><Icon name="trash" className="w-4 h-4" /></button>
-                  </div>
-                  <div className="grid md:grid-cols-3 gap-2 pl-8">
-                    {/* เป้าหมาย */}
-                    <div>
-                      <label className="block text-xs text-ink-500 mb-1">เป้าหมาย</label>
-                      <div className="flex gap-1">
-                        <Select value={s.targetType} onChange={(e) => updateSub(s.id, 'targetType', e.target.value)} className="!py-1.5 text-xs w-24">
-                          <option value="percent">≥ %</option>
-                          <option value="count">จำนวนครั้ง</option>
-                        </Select>
-                        <Input type="number" min={0} value={s.targetValue} onChange={(e) => updateSub(s.id, 'targetValue', e.target.value)} className="!py-1.5 text-sm flex-1" />
-                        {s.targetType === 'count' && (
-                          <Select value={s.targetUnit} onChange={(e) => updateSub(s.id, 'targetUnit', e.target.value)} className="!py-1.5 text-xs w-24">
-                            <option value="week">/สัปดาห์</option>
-                            <option value="month">/เดือน</option>
-                          </Select>
-                        )}
+        {/* รายละเอียดตามหมวด */}
+        <div className="space-y-3">
+          {(record.categories || []).map(cat => (
+            <div key={cat.id} className="border border-ink-200 rounded-xl overflow-hidden">
+              <div className="bg-brand-50 px-4 py-2 font-medium text-brand-900">{cat.name}</div>
+              <div className="divide-y divide-ink-100">
+                {(cat.items || []).map(it => {
+                  const pctDone = Number(record.scores?.[it.id]) || 0;
+                  const earned = Math.round((pctDone / 100) * (Number(it.weight) || 0) * 10) / 10;
+                  return (
+                    <div key={it.id} className="px-4 py-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm text-ink-900">{it.name}</div>
+                          <div className="text-xs text-ink-500">{it.target && `เป้า: ${it.target} · `}น้ำหนัก {it.weight}%</div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="w-20 h-1.5 bg-ink-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${pctDone}%`, background: g.color }} />
+                          </div>
+                          <span className="text-sm font-medium text-ink-700 w-12 text-right">{pctDone}%</span>
+                          <span className="text-xs text-ink-400 w-10 text-right">+{earned}</span>
+                        </div>
                       </div>
                     </div>
-                    {/* น้ำหนักย่อย */}
-                    <div>
-                      <label className="block text-xs text-ink-500 mb-1">น้ำหนักย่อย (%)</label>
-                      <Input type="number" min={0} max={100} value={s.weight} onChange={(e) => updateSub(s.id, 'weight', e.target.value)} className="!py-1.5 text-sm" />
-                    </div>
-                    {/* วิธีวัดผล */}
-                    <div>
-                      <label className="block text-xs text-ink-500 mb-1">วิธีวัดผล</label>
-                      <Input value={s.method} onChange={(e) => updateSub(s.id, 'method', e.target.value)} placeholder="เช่น ยอดจริง÷เป้า" className="!py-1.5 text-sm" />
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
-          )}
-          <Button type="button" variant="outline" size="sm" icon="plus" onClick={addSub} className="mt-3">เพิ่มหัวข้อย่อย</Button>
+          ))}
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t border-ink-100">
-          <Button type="button" variant="secondary" onClick={onClose}>ยกเลิก</Button>
-          <Button type="submit" icon={editing ? 'check' : 'plus'}>{editing ? 'บันทึก' : 'เพิ่มหัวข้อ'}</Button>
+        {record.note && <div className="bg-ink-50 rounded-xl p-3 text-sm text-ink-700"><span className="text-xs text-ink-400">ข้อเสนอแนะ: </span>{record.note}</div>}
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-ink-100">
+          <Button variant="outline" icon="download" onClick={exportExcel}>Export Excel</Button>
+          <Button variant="secondary" onClick={onClose}>ปิด</Button>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 };
+
 
 /* =============================================================
    REPORTS PAGE
