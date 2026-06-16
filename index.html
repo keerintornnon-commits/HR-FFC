@@ -1220,7 +1220,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.16/06
               </div>
             </div>
           </Card>
@@ -2261,15 +2261,28 @@ const EmployeeProfileModal = ({ employee, onClose, attendance, leaves, leaveType
       .filter(l => l.employeeId === emp.id)
       .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')));
 
-    // สถิติการเข้างาน — มาทำงานจริง = ontime + late + wfh (WFH ถือว่ามาทำงาน)
-    const workDays   = myAtt.filter(a => a.status === 'ontime' || a.status === 'late' || a.status === 'wfh');
-    const totalDays  = workDays.length;
+    // สถิติการเข้างาน — มาทำงานจริง = ontime + late + wfh + nocheckout (เต็มวัน) + partial (ครึ่งวัน)
+    // partial = มาทำงานบางส่วน + ลาบางส่วน → นับตามสัดส่วนที่มาทำงานจริง
+    const dayWeight = (a) => {
+      if (['ontime', 'late', 'wfh', 'nocheckout'].includes(a.status)) return 1;       // เต็มวัน
+      if (a.status === 'partial') {
+        // ลาครึ่งวัน (เช้า/บ่าย) = มาทำงานครึ่งวัน 0.5
+        if (a.leavePeriod === 'morning' || a.leavePeriod === 'afternoon') return 0.5;
+        // ลาเป็นชั่วโมง = มาทำงาน (8 - ชม.ลา)/8
+        if (a.leavePeriod === 'hours' && a.leaveHours) return Math.max(0, (8 - Number(a.leaveHours)) / 8);
+        return 0.5;
+      }
+      return 0;
+    };
+    const workDays   = myAtt.filter(a => dayWeight(a) > 0);
+    const totalDays  = Math.round(workDays.reduce((s, a) => s + dayWeight(a), 0) * 10) / 10;  // รวมแบบครึ่งวัน
     const lateDays   = myAtt.filter(a => a.status === 'late').length;
     const onTimeDays = myAtt.filter(a => a.status === 'ontime').length;
     const wfhDays    = myAtt.filter(a => a.status === 'wfh').length;
+    const partialDays = myAtt.filter(a => a.status === 'partial').length;
     const absentDays = myAtt.filter(a => a.status === 'absent').length;
-    // อัตราตรงเวลา = (ตรงเวลา + wfh) / วันทำงาน
-    const onTimeRate = totalDays > 0 ? Math.round(((onTimeDays + wfhDays) / totalDays) * 100) : 0;
+    // อัตราตรงเวลา = (ตรงเวลา + wfh) / จำนวนรายการที่มาทำงาน
+    const onTimeRate = workDays.length > 0 ? Math.round(((onTimeDays + wfhDays) / workDays.length) * 100) : 0;
 
     // โควต้าการลา
     const quota = calcQuota(emp, leaveTypes, leaves, year);
@@ -2277,7 +2290,7 @@ const EmployeeProfileModal = ({ employee, onClose, attendance, leaves, leaveType
     const approvedLeaves = myLeaves.filter(l => l.status === 'approved').length;
     const pendingLeaves  = myLeaves.filter(l => l.status === 'pending').length;
 
-    return { myAtt, myLeaves, totalDays, lateDays, onTimeDays, wfhDays, absentDays, onTimeRate, quota, totalLeaveUsed, approvedLeaves, pendingLeaves };
+    return { myAtt, myLeaves, totalDays, lateDays, onTimeDays, wfhDays, partialDays, absentDays, onTimeRate, quota, totalLeaveUsed, approvedLeaves, pendingLeaves };
   }, [employee, attendance, leaves, leaveTypes]);
 
   if (!employee) return null;
@@ -2333,6 +2346,7 @@ const EmployeeProfileModal = ({ employee, onClose, attendance, leaves, leaveType
         <div className="rounded-2xl bg-flow-50 border border-flow-100 p-4">
           <div className="text-xs text-ink-500 mb-1">มาทำงานทั้งหมด</div>
           <div className="font-display text-2xl font-bold text-flow-700">{stats.totalDays} <span className="text-sm font-normal text-ink-500">วัน</span></div>
+          {stats.partialDays > 0 && <div className="text-xs text-cyan-600 mt-0.5">รวมมาครึ่งวัน {stats.partialDays} ครั้ง</div>}
         </div>
         <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4">
           <div className="text-xs text-ink-500 mb-1">อัตราตรงเวลา</div>
