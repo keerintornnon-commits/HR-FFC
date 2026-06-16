@@ -1220,7 +1220,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — V.16/06/69
               </div>
             </div>
           </Card>
@@ -5353,11 +5353,17 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   // นับวันมาทำงานจริง (ทุกประเภทเงินเดือน) — มาทำงาน/สาย/WFH/มาบางส่วน/ไม่สแกนออก
   // ไม่นับวันอาทิตย์ (กรองออกแล้ว) และไม่นับวันลาเต็มวัน
   const attendedDays = monthAtt.filter(a => ['ontime','late','wfh','partial','nocheckout'].includes(a.status)).length;
+
+  // นับวันลาเต็มวัน (เพื่อรวมเข้าฐานรายวัน แล้วหักทีหลัง ให้เห็นการหักชัดเจน ไม่หัก 2 เด้ง)
+  const leaveDaysTotal = monthLeaves
+    .filter(l => l.type !== 'wfh' && l.type !== 'offsite')
+    .reduce((sum, l) => sum + (Number(l.days) || 0), 0);
+
   let baseSalary, workedDays = 0;
   if (salaryType === 'daily') {
-    // รายวัน: จ่ายตามวันที่มาทำงานจริง
+    // รายวัน: ฐาน = วันมาทำงาน + วันลา (รวมก่อน) แล้วการลาจะถูกหักทีหลังในส่วนหักการลา
     workedDays = attendedDays;
-    baseSalary = perDay * workedDays;
+    baseSalary = perDay * (attendedDays + leaveDaysTotal);
   } else {
     // รายเดือน: ถ้ารอบเต็มเดือน = ฐานเต็ม, ถ้ารอบสั้นกว่า = prorate ตามจำนวนวัน
     workedDays = attendedDays;
@@ -5398,22 +5404,24 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     let deduct = 0, reason = '';
 
     if (type === 'wfh' || type === 'offsite') {
-      // WFH / นอกสถานที่ — ไม่หัก
+      // WFH / นอกสถานที่ — ไม่หัก (ถือว่าทำงาน)
       reason = 'ไม่หัก (ทำงานนอกสถานที่)';
-    } else if (type === 'sick') {
-      // ลาป่วย
-      if (salaryType === 'daily') {
-        deduct = perDay * days; reason = 'รายวัน หักเต็มวัน';
+    } else if (salaryType === 'daily') {
+      // รายวัน: ลาทุกประเภท = ไม่มาทำงาน = ไม่ได้เงินวันนั้น (หักเต็มตามวันลา)
+      // (ฐานเงินเดือนรวมวันลาไว้แล้ว จึงหักออกตรงนี้ ให้เห็นชัดเจน)
+      if (l.period === 'hours' && l.hours) {
+        deduct = perHour * Number(l.hours); reason = `รายวัน — หักตามชั่วโมงลา (${l.hours} ชม.)`;
       } else {
-        // รายเดือน: มีใบรับรองแพทย์ = ไม่หัก, ไม่มี = หักเต็มวัน
-        if (l.medicalCert) { reason = 'มีใบรับรองแพทย์ — ไม่หัก'; }
-        else { deduct = perDay * days; reason = 'ไม่มีใบรับรองแพทย์ — หักเต็มวัน'; }
+        deduct = perDay * days; reason = 'รายวัน — หักตามวันลา';
       }
+    } else if (type === 'sick') {
+      // ลาป่วย (รายเดือน): มีใบรับรองแพทย์ = ไม่หัก, ไม่มี = หักเต็มวัน
+      if (l.medicalCert) { reason = 'มีใบรับรองแพทย์ — ไม่หัก'; }
+      else { deduct = perDay * days; reason = 'ไม่มีใบรับรองแพทย์ — หักเต็มวัน'; }
     } else if (type === 'personal' || type === 'vacation') {
-      // ลากิจ / ลาพักร้อน — ไม่หักถ้าอยู่ในโควต้า, เกินโควต้าหักเต็มวัน
+      // ลากิจ / ลาพักร้อน (รายเดือน) — ไม่หักถ้าอยู่ในโควต้า, เกินโควต้าหักเต็มวัน
       const q = quotaMap[type];
       if (q && q.remaining < 0) {
-        // เกินโควต้า — หักเฉพาะส่วนที่เกิน (สูงสุดเท่ากับวันลานี้)
         const over = Math.min(days, Math.abs(q.remaining));
         deduct = perDay * over;
         reason = over >= days ? 'เกินโควต้า — หักเต็มวัน' : `เกินโควต้า ${over} วัน`;
@@ -5421,7 +5429,7 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
         reason = 'อยู่ในโควต้า — ไม่หัก';
       }
     } else if (type === 'unpaid') {
-      // ลาไม่รับเงินเดือน: รายชั่วโมง = perHour × ชม., รายวัน = perDay × วัน
+      // ลาไม่รับเงินเดือน (รายเดือน): รายชั่วโมง = perHour × ชม., รายวัน = perDay × วัน
       if (l.period === 'hours' && l.hours) {
         deduct = perHour * Number(l.hours); reason = `รายชั่วโมง ${l.hours} ชม.`;
       } else {
