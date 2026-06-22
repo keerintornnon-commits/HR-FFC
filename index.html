@@ -435,52 +435,207 @@ const Icon = ({ name, className = "w-5 h-5", strokeWidth = 2 }) => {
 const AppCtx = createContext(null);
 const useApp = () => useContext(AppCtx);
 
-/* =============================================================
-   CONFIG — แก้ apiUrl ที่นี่หลังจาก Deploy Apps Script แล้ว
-   ============================================================= */
-const CONFIG = {
-  // วาง Web App URL ของ Google Apps Script ที่นี่ (เชื่อมต่ออัตโนมัติทุกครั้งที่เปิด)
-  // ถ้าตั้งผ่านหน้า "ตั้งค่า" ในเว็บ จะใช้ค่าจาก localStorage แทน
-  apiUrl: (() => {
-    const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxTAYsrZx0PaEDYOx7NoNBPd1ncVRvWf5lTS0A42eJfIDdDl6VPZSUZ5MB4GchmlLur/exec';
-    try { return localStorage.getItem('ffc_api_url') || DEFAULT_URL; } catch { return DEFAULT_URL; }
-  })(),
+/* ═══════════════════════════════════════════════════════════════════
+   SUPABASE API LAYER — แทนที่ Google Apps Script
+   วิธีใช้: แทนที่ const CONFIG + const api เดิมด้วยโค้ดทั้งบล็อกนี้
+   ═══════════════════════════════════════════════════════════════════ */
+
+// ── 1. ตั้งค่า Supabase ──
+// หาได้จาก Supabase Dashboard → Project Settings → API
+const SUPABASE_CONFIG = {
+  url:     'https://YOUR_PROJECT.supabase.co',           // ← วาง Project URL
+  anonKey: 'YOUR_ANON_KEY',                              // ← วาง anon public key
 };
 
-/* =============================================================
-   API CLIENT — ติดต่อ Google Apps Script
-   ใช้ body แบบ text/plain เพื่อหลีกเลี่ยง CORS preflight
-   ============================================================= */
+// อ่าน override จาก localStorage (เผื่อตั้งผ่านหน้าเว็บ)
+const getSupabaseConfig = () => {
+  try {
+    return {
+      url:     localStorage.getItem('ffc_sb_url')  || SUPABASE_CONFIG.url,
+      anonKey: localStorage.getItem('ffc_sb_key')  || SUPABASE_CONFIG.anonKey,
+    };
+  } catch { return SUPABASE_CONFIG; }
+};
+
+const CONFIG = {
+  get apiUrl() {
+    const c = getSupabaseConfig();
+    return (c.url && c.url !== 'https://YOUR_PROJECT.supabase.co' && c.anonKey && c.anonKey !== 'YOUR_ANON_KEY') ? c.url : '';
+  },
+};
+
+/* ── 2. Field Mapping: camelCase (เว็บ) ↔ snake_case (DB) ──
+   แต่ละตารางระบุ field ที่ชื่อต่างกัน ส่วนที่ชื่อเหมือนกันไม่ต้องระบุ */
+const FIELD_MAP = {
+  employees: {
+    firstName: 'first_name', lastName: 'last_name', branchId: 'branch_id',
+    startDate: 'start_date', canApprove: 'can_approve', approvalScope: 'approval_scope',
+    canPayroll: 'can_payroll', salaryType: 'salary_type', baseSalary: 'base_salary',
+    specialAllowance: 'special_allowance', leaveQuotaOverride: 'leave_quota_override',
+  },
+  attendance: {
+    employeeId: 'employee_id', checkIn: 'check_in', checkOut: 'check_out',
+    leaveType: 'leave_type', leavePeriod: 'leave_period', leaveHours: 'leave_hours',
+  },
+  leaves: {
+    employeeId: 'employee_id', startDate: 'start_date', endDate: 'end_date',
+    medicalCert: 'medical_cert', createdAt: 'created_at',
+  },
+  assets: {
+    branchId: 'branch_id', serialNo: 'serial_no', purchaseDate: 'purchase_date',
+    purchasePrice: 'purchase_price', usefulLife: 'useful_life', currentValue: 'current_value',
+    lastCheck: 'last_check',
+  },
+  payroll: {
+    employeeId: 'employee_id', periodFrom: 'period_from', periodTo: 'period_to',
+    payDate: 'pay_date', baseSalary: 'base_salary', otherEarn: 'other_earn',
+    absenceDeduct: 'absence_deduct', otherDeduct: 'other_deduct',
+  },
+  kpi_criteria: { targetOverall: 'target_overall', branchType: 'branch_type' },
+  kpi_records: {
+    employeeId: 'employee_id', branchId: 'branch_id', templateId: 'template_id',
+    positionName: 'position_name', evalDate: 'eval_date',
+  },
+  app_users: { branchId: 'branch_id', empId: 'emp_id' },
+};
+
+// แปลง object: camelCase → snake_case (สำหรับเขียนลง DB)
+const toDb = (table, obj) => {
+  const map = FIELD_MAP[table] || {};
+  const out = {};
+  Object.entries(obj || {}).forEach(([k, v]) => {
+    out[map[k] || k] = v;
+  });
+  return out;
+};
+// แปลง object: snake_case → camelCase (สำหรับอ่านจาก DB)
+const fromDb = (table, row) => {
+  const map = FIELD_MAP[table] || {};
+  const rev = Object.fromEntries(Object.entries(map).map(([c, s]) => [s, c]));
+  const out = {};
+  Object.entries(row || {}).forEach(([k, v]) => {
+    if (k === 'created_at' || k === 'updated_at') return;  // ข้าม timestamp ภายใน
+    out[rev[k] || k] = v;
+  });
+  return out;
+};
+
+/* ── 3. Supabase REST helper (ผ่าน PostgREST — ไม่ต้องโหลด SDK) ── */
+const sb = {
+  async request(method, path, body, extraHeaders = {}) {
+    const c = getSupabaseConfig();
+    const res = await fetch(`${c.url}/rest/v1/${path}`, {
+      method,
+      headers: {
+        'apikey': c.anonKey,
+        'Authorization': `Bearer ${c.anonKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation',
+        ...extraHeaders,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Supabase ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const txt = await res.text();
+    return txt ? JSON.parse(txt) : null;
+  },
+  select: (table, query = '') => sb.request('GET', `${table}?select=*${query}`),
+  upsert: (table, rows) => sb.request('POST', table, rows),
+  remove: (table, col, val) => sb.request('DELETE', `${table}?${col}=eq.${encodeURIComponent(val)}`),
+};
+
+/* ── 4. api object — interface เดิม (get/post/enabled) ── */
 const api = {
   enabled: () => !!CONFIG.apiUrl,
 
   async get(action, params = {}) {
-    if (!api.enabled()) throw new Error('API not configured');
-    const url = new URL(CONFIG.apiUrl);
-    url.searchParams.set('action', action);
-    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-    const res = await fetch(url.toString());
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Unknown error');
-    return json.data;
+    if (!api.enabled()) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+
+    if (action === 'getAll') {
+      // ดึงทุกตารางขนาน → map กลับเป็น camelCase
+      const [employees, attendance, leaves, leaveTypes, branches, departments,
+             assets, payroll, kpiCriteria, kpiRecords, settingsRows] = await Promise.all([
+        sb.select('employees'), sb.select('attendance'), sb.select('leaves'),
+        sb.select('leave_types'), sb.select('branches'), sb.select('departments'),
+        sb.select('assets'), sb.select('payroll'), sb.select('kpi_criteria'),
+        sb.select('kpi_records'), sb.select('settings'),
+      ]);
+      // settings: key-value → object
+      const settings = {};
+      (settingsRows || []).forEach(r => { settings[r.key] = r.value; });
+      const company = settings.company || {};
+      return {
+        employees:   (employees || []).map(r => fromDb('employees', r)),
+        attendance:  (attendance || []).map(r => fromDb('attendance', r)),
+        leaves:      (leaves || []).map(r => fromDb('leaves', r)),
+        leaveTypes:  leaveTypes || [],
+        branches:    branches || [],
+        departments: (departments || []).map(r => r.name),
+        assets:      (assets || []).map(r => fromDb('assets', r)),
+        payroll:     (payroll || []).map(r => fromDb('payroll', r)),
+        kpiCriteria: (kpiCriteria || []).map(r => fromDb('kpi_criteria', r)),
+        kpiRecords:  (kpiRecords || []).map(r => fromDb('kpi_records', r)),
+        settings:    company,
+      };
+    }
+
+    if (action === 'login') {
+      const rows = await sb.select('app_users', `&username=eq.${encodeURIComponent(params.username)}`);
+      const u = (rows || [])[0];
+      if (!u || u.password !== params.password) throw new Error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      return { username: u.username, role: u.role, name: u.name, branchId: u.branch_id, empId: u.emp_id };
+    }
+
+    throw new Error('Unknown GET action: ' + action);
   },
 
-  async post(action, data = {}) {
-    if (!api.enabled()) throw new Error('API not configured');
-    const res = await fetch(CONFIG.apiUrl, {
-      method: 'POST',
-      // ใช้ text/plain เพื่อไม่ trigger CORS preflight (Apps Script ไม่รองรับ)
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, ...data }),
-      redirect: 'follow',
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Unknown error');
-    return json.data;
+  async post(action, payload = {}) {
+    if (!api.enabled()) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+    const d = payload.data;
+
+    switch (action) {
+      // ── บันทึกเดี่ยว (upsert) ──
+      case 'saveEmployee':  return sb.upsert('employees',  toDb('employees', d));
+      case 'saveLeave':     return sb.upsert('leaves',     toDb('leaves', d));
+      case 'saveAsset':     return sb.upsert('assets',     toDb('assets', d));
+      case 'savePayroll':   return sb.upsert('payroll',    toDb('payroll', d));
+      case 'saveKpiRecord': return sb.upsert('kpi_records', toDb('kpi_records', d));
+
+      // ── บันทึกเป็นชุด ──
+      case 'saveAttendanceBatch':
+        return sb.upsert('attendance', (d || []).map(r => toDb('attendance', r)));
+      case 'saveKpiCriteria':
+        // แทนที่ทั้งตาราง: ลบเก่า + ใส่ใหม่
+        await sb.request('DELETE', 'kpi_criteria?id=neq.__none__');
+        return (d && d.length) ? sb.upsert('kpi_criteria', d.map(r => toDb('kpi_criteria', r))) : null;
+      case 'saveLeaveTypes':
+        await sb.request('DELETE', 'leave_types?id=neq.__none__');
+        return (d && d.length) ? sb.upsert('leave_types', d) : null;
+      case 'saveBranches':
+        await sb.request('DELETE', 'branches?id=neq.__none__');
+        return (d && d.length) ? sb.upsert('branches', d) : null;
+      case 'saveDepartments':
+        await sb.request('DELETE', 'departments?name=neq.__none__');
+        return (d && d.length) ? sb.upsert('departments', d.map(name => ({ name }))) : null;
+      case 'saveSettings':
+        // settings เป็น key-value: เก็บทั้งก้อนใน key 'company'
+        return sb.upsert('settings', { key: 'company', value: d });
+
+      // ── ลบ ──
+      case 'deleteEmployee':  return sb.remove('employees',   'id', payload.id);
+      case 'deleteAsset':     return sb.remove('assets',      'id', payload.id);
+      case 'deletePayroll':   return sb.remove('payroll',     'id', payload.id);
+      case 'deleteLeave':     return sb.remove('leaves',      'id', payload.id);
+      case 'deleteKpiRecord': return sb.remove('kpi_records', 'id', payload.id);
+
+      default: throw new Error('Unknown POST action: ' + action);
+    }
   },
 };
+
 
 // ค่าเริ่มต้นของสาขา — แก้ไขผ่านหน้า "ตั้งค่า → สาขา" ได้
 const DEFAULT_BRANCHES = [
@@ -1395,9 +1550,9 @@ const Topbar = ({ title, subtitle, action }) => {
         <div className="flex items-center gap-3">
           {action}
           <button
-            onClick={() => api.enabled() ? refreshData() : addToast('info', 'ยังไม่ได้เชื่อมต่อ Google Sheets — ไปที่ ตั้งค่า › สถานะฐานข้อมูล เพื่อกรอก URL')}
+            onClick={() => api.enabled() ? refreshData() : addToast('info', 'ยังไม่ได้เชื่อมต่อ Supabase — ไปที่ ตั้งค่า › ฐานข้อมูล เพื่อกรอก URL + Key')}
             disabled={syncing}
-            title={api.enabled() ? 'ซิงค์ข้อมูลล่าสุด' : 'ยังไม่ได้เชื่อมต่อ Google Sheets'}
+            title={api.enabled() ? 'ซิงค์ข้อมูลล่าสุด' : 'ยังไม่ได้เชื่อมต่อ Supabase'}
             className={cls(
               'w-10 h-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-50',
               api.enabled() ? 'border-ink-200 hover:bg-ink-50 text-ink-600' : 'border-gold-300 bg-gold-50 text-gold-600 hover:bg-gold-100',
@@ -7472,7 +7627,8 @@ const SettingsPage = () => {
   const [editing, setEditing] = useState(null); // ประเภทที่กำลังแก้ไข
   const [showAdd, setShowAdd] = useState(false);
   const [companyForm, setCompanyForm] = useState(settings);
-  const [apiUrlInput, setApiUrlInput] = useState(CONFIG.apiUrl || '');
+  const [sbUrlInput, setSbUrlInput] = useState(() => { try { return localStorage.getItem('ffc_sb_url') || ''; } catch { return ''; } });
+  const [sbKeyInput, setSbKeyInput] = useState(() => { try { return localStorage.getItem('ffc_sb_key') || ''; } catch { return ''; } });
 
   // Branch & Department modals
   const [showBranchModal, setShowBranchModal] = useState(false);
@@ -8012,8 +8168,8 @@ const SettingsPage = () => {
       {/* TAB: Database */}
       {tab === 'database' && (
         <Card className="p-6">
-          <h3 className="font-display text-lg font-semibold text-ink-900 mb-2">การเชื่อมต่อ Google Sheets</h3>
-          <p className="text-sm text-ink-500 mb-4">ระบบใช้ Google Apps Script + Google Sheets เป็นฐานข้อมูล (ฟรี 100%)</p>
+          <h3 className="font-display text-lg font-semibold text-ink-900 mb-2">การเชื่อมต่อ Supabase</h3>
+          <p className="text-sm text-ink-500 mb-4">ระบบใช้ Supabase (PostgreSQL) เป็นฐานข้อมูล — เร็วและเสถียร</p>
 
           <div className={cls(
             "rounded-xl p-4 mb-4 flex items-center gap-3",
@@ -8031,27 +8187,45 @@ const SettingsPage = () => {
               </div>
               <div className="text-ink-600 text-xs mt-0.5">
                 {api.enabled()
-                  ? "ข้อมูลถูกบันทึกใน Google Sheets อัตโนมัติ"
-                  : "ข้อมูลจะหายเมื่อรีเฟรชหน้า — กรอก URL ด้านล่างเพื่อเชื่อมต่อ"}
+                  ? "ข้อมูลถูกบันทึกใน Supabase อัตโนมัติ"
+                  : "ข้อมูลจะหายเมื่อรีเฟรชหน้า — กรอก URL + Key ด้านล่างเพื่อเชื่อมต่อ"}
               </div>
             </div>
           </div>
 
-          <div className="bg-white border border-ink-200 rounded-xl p-4">
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">Google Apps Script Web App URL</label>
-            <Input
-              value={apiUrlInput}
-              onChange={(e) => setApiUrlInput(e.target.value)}
-              placeholder="https://script.google.com/macros/s/.../exec"
-              className="font-mono text-xs"
-            />
-            <div className="flex gap-2 mt-3">
+          <div className="bg-white border border-ink-200 rounded-xl p-4 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">Project URL</label>
+              <Input
+                value={sbUrlInput}
+                onChange={(e) => setSbUrlInput(e.target.value)}
+                placeholder="https://xxxxx.supabase.co"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">anon public key</label>
+              <Input
+                value={sbKeyInput}
+                onChange={(e) => setSbKeyInput(e.target.value)}
+                placeholder="eyJhbGci..."
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="flex gap-2">
               <Button size="sm" icon="check" onClick={() => {
-                const url = apiUrlInput.trim();
+                const url = sbUrlInput.trim();
+                const key = sbKeyInput.trim();
                 try {
-                  if (url) localStorage.setItem('ffc_api_url', url);
-                  else localStorage.removeItem('ffc_api_url');
-                  addToast('success', url ? 'บันทึก URL แล้ว กำลังโหลดใหม่...' : 'ล้าง URL แล้ว');
+                  if (url && key) {
+                    localStorage.setItem('ffc_sb_url', url);
+                    localStorage.setItem('ffc_sb_key', key);
+                    addToast('success', 'บันทึกแล้ว กำลังโหลดใหม่...');
+                  } else {
+                    localStorage.removeItem('ffc_sb_url');
+                    localStorage.removeItem('ffc_sb_key');
+                    addToast('info', 'ล้างการตั้งค่าแล้ว');
+                  }
                   setTimeout(() => window.location.reload(), 800);
                 } catch { addToast('error', 'บันทึกไม่สำเร็จ'); }
               }}>
@@ -8059,7 +8233,7 @@ const SettingsPage = () => {
               </Button>
               {api.enabled() && (
                 <Button size="sm" variant="secondary" onClick={() => {
-                  try { localStorage.removeItem('ffc_api_url'); } catch {}
+                  try { localStorage.removeItem('ffc_sb_url'); localStorage.removeItem('ffc_sb_key'); } catch {}
                   addToast('info', 'ตัดการเชื่อมต่อแล้ว กำลังโหลดใหม่...');
                   setTimeout(() => window.location.reload(), 800);
                 }}>
@@ -8067,13 +8241,13 @@ const SettingsPage = () => {
                 </Button>
               )}
             </div>
-            <p className="text-xs text-ink-500 mt-3">
-              วิธีหา URL: เปิด Apps Script → <strong>Deploy</strong> → <strong>New deployment</strong> → ประเภท <strong>Web app</strong> → ตั้ง "Who has access" เป็น <strong>Anyone</strong> → คัดลอก URL ที่ลงท้ายด้วย <code className="px-1 bg-ink-100 rounded">/exec</code>
+            <p className="text-xs text-ink-500">
+              วิธีหา: Supabase Dashboard → <strong>Settings (เฟือง)</strong> → <strong>API</strong> → คัดลอก <strong>Project URL</strong> (บนสุด) และ <strong>anon public</strong> key (ใต้ Project API Keys) หรือกดปุ่ม <strong>Connect</strong> ด้านบนของ Dashboard
             </p>
           </div>
 
           <p className="text-xs text-ink-500 mt-3">
-            ดูคู่มือการติดตั้ง Google Apps Script แบบละเอียดใน <code className="px-1.5 py-0.5 bg-ink-100 rounded">README.md</code>
+            ดูคู่มือการตั้งค่าแบบละเอียดใน <code className="px-1.5 py-0.5 bg-ink-100 rounded">SETUP_GUIDE.md</code>
           </p>
         </Card>
       )}
@@ -8454,7 +8628,7 @@ const App = () => {
           try { localStorage.setItem('ffc_data_cache', JSON.stringify(data)); } catch {}
         } catch (err) {
           if (!hadCache) {
-            setToast({ type: 'error', message: 'เชื่อมต่อ Google Sheets ล้มเหลว: ' + err.message });
+            setToast({ type: 'error', message: 'เชื่อมต่อ Supabase ล้มเหลว: ' + err.message });
             const emps = seedEmployees();
             setEmployees(emps);
             setAttendance(seedAttendance(emps));
@@ -8521,7 +8695,7 @@ const App = () => {
           <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center mx-auto mb-6 shadow-card animate-pulse-soft p-3">
             <img src={LOGO_EAGLE} alt="FFC" className="w-full h-full object-contain" style={{ filter: 'brightness(1.5)' }} />
           </div>
-          <div className="font-display text-2xl font-bold mb-2">กำลังเชื่อมต่อ Google Sheets...</div>
+          <div className="font-display text-2xl font-bold mb-2">กำลังเชื่อมต่อ Supabase...</div>
           <div className="text-brand-200/70 text-sm flex items-center gap-2 justify-center">
             <Icon name="refresh" className="w-4 h-4 animate-spin" />
             <span>กรุณารอสักครู่</span>
@@ -8575,7 +8749,7 @@ const App = () => {
         {api.enabled() && (
           <div className="fixed bottom-4 left-4 z-40 bg-emerald-500 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-soft flex items-center gap-1.5 no-print">
             <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-            เชื่อมต่อ Google Sheets
+            เชื่อมต่อ Supabase
           </div>
         )}
         <Sidebar
