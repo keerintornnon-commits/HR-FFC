@@ -2207,7 +2207,7 @@ const EmployeesPage = () => {
         return (e.firstName + e.lastName + e.id + e.email + e.phone).toLowerCase().includes(q);
       }
       return true;
-    });
+    }).sort((a, b) => String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true }));
   }, [employees, search, filterBranch, filterDep, user]);
 
   const deleteEmp = (id) => {
