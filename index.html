@@ -441,10 +441,10 @@ const useApp = () => useContext(AppCtx);
    ═══════════════════════════════════════════════════════════════════ */
 
 // ── 1. ตั้งค่า Supabase ──
-// หาได้จาก Supabase Dashboard → Project Settings → API
+// ฝังค่าไว้ในไฟล์ → ทุกคนที่เปิดลิงก์เชื่อมต่ออัตโนมัติ
 const SUPABASE_CONFIG = {
-  url:     'https://YOUR_PROJECT.supabase.co',           // ← วาง Project URL
-  anonKey: 'YOUR_ANON_KEY',                              // ← วาง anon public key
+  url:     'https://xfxfryhruitpzchsdbpy.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmeGZyeWhydWl0cHpjaHNkYnB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMDUwMTcsImV4cCI6MjA5NzY4MTAxN30.16zcKZTZKbVg9-B4O5s5ZO6L0YbbaU-Mo_y9xQEwHIY',
 };
 
 // อ่าน override จาก localStorage (เผื่อตั้งผ่านหน้าเว็บ)
@@ -1396,7 +1396,7 @@ const LoginPage = ({ onLogin, addToast }) => {
                 <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
-                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — Non-Version
+                © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
               </div>
             </div>
           </Card>
