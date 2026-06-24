@@ -499,12 +499,39 @@ const FIELD_MAP = {
   app_users: { branchId: 'branch_id', empId: 'emp_id' },
 };
 
+// ช่องที่ต้องเป็นตัวเลข (NUMERIC) — ค่าว่าง/ตัวอักษรปน → ดึงเฉพาะเลข หรือ null
+const NUMERIC_COLS = new Set([
+  'base_salary', 'special_allowance', 'purchase_price', 'useful_life', 'current_value',
+  'days', 'hours', 'leave_hours', 'max', 'overtime', 'transport', 'bonus',
+  'other_earn', 'sso', 'tax', 'absence_deduct', 'gyos', 'other_deduct',
+]);
+// ช่องที่ต้องเป็นวันที่ (DATE) — รูปแบบไม่ถูก → null
+const DATE_COLS = new Set([
+  'start_date', 'end_date', 'date', 'purchase_date', 'last_check',
+  'period_from', 'period_to', 'pay_date', 'eval_date',
+]);
+
+const cleanNum = (v) => {
+  if (v === '' || v == null) return null;
+  if (typeof v === 'number') return v;
+  const m = String(v).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+};
+const cleanDateVal = (v) => {
+  if (v === '' || v == null) return null;
+  const s = String(v).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+};
+
 // แปลง object: camelCase → snake_case (สำหรับเขียนลง DB)
 const toDb = (table, obj) => {
   const map = FIELD_MAP[table] || {};
   const out = {};
   Object.entries(obj || {}).forEach(([k, v]) => {
-    out[map[k] || k] = v;
+    const col = map[k] || k;
+    if (NUMERIC_COLS.has(col))      out[col] = cleanNum(v);
+    else if (DATE_COLS.has(col))    out[col] = cleanDateVal(v);
+    else                            out[col] = (v === '') ? null : v;
   });
   return out;
 };
@@ -1393,7 +1420,7 @@ const LoginPage = ({ onLogin, addToast }) => {
             <div className="mt-8 pt-5 border-t border-ink-100 text-center space-y-1">
               <div className="flex items-center justify-center gap-1.5 text-[11px] text-ink-500">
                 <Icon name="lock" className="w-3 h-3" />
-                <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
+                <span>การเชื่อมต่อ</span>
               </div>
               <div className="text-[10px] text-ink-400">
                 © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
