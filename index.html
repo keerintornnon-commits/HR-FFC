@@ -28,6 +28,10 @@
 <!-- Lucide icons -->
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.376.0/dist/umd/lucide.min.js"></script>
 
+<!-- QR Code generator + scanner -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
 <script>
   // Tailwind custom config
   tailwind.config = {
@@ -119,6 +123,24 @@
 <style>
   html, body { font-family: 'Sarabun', system-ui, sans-serif; }
   h1, h2, h3, h4, .font-display { font-family: 'Prompt', system-ui, sans-serif; }
+
+  /* contentEditable placeholder */
+  [contentEditable][data-placeholder]:empty:before {
+    content: attr(data-placeholder);
+    color: #94A3B8;
+    pointer-events: none;
+  }
+  /* ประกาศข่าวสาร — รองรับ rich text */
+  .announcement-body ul { list-style: disc; padding-left: 1.5rem; margin: 0.25rem 0; }
+  .announcement-body ol { list-style: decimal; padding-left: 1.5rem; margin: 0.25rem 0; }
+  .announcement-body b, .announcement-body strong { font-weight: 700; }
+  .announcement-body a { color: #2563EB; text-decoration: underline; }
+  .announcement-body font[size="1"] { font-size: 0.75rem; }
+  .announcement-body font[size="2"] { font-size: 0.875rem; }
+  .announcement-body font[size="3"] { font-size: 1rem; }
+  .announcement-body font[size="5"] { font-size: 1.25rem; }
+  .announcement-body font[size="6"] { font-size: 1.5rem; }
+  .announcement-body font[size="7"] { font-size: 2rem; }
 
   /* Smooth scroll */
   html { scroll-behavior: smooth; }
@@ -421,6 +443,8 @@ const Icon = ({ name, className = "w-5 h-5", strokeWidth = 2 }) => {
     clock:     <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     tag:       <><path d="M12 2H2v10l9.3 9.3a1 1 0 0 0 1.4 0l8.3-8.3a1 1 0 0 0 0-1.4z" transform="scale(-1,1) translate(-24,0)"/><circle cx="7" cy="7" r="1.5"/></>,
     target:    <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></>,
+    receipt:   <><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/></>,
+    book:      <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -472,6 +496,7 @@ const FIELD_MAP = {
     startDate: 'start_date', canApprove: 'can_approve', approvalScope: 'approval_scope',
     canPayroll: 'can_payroll', salaryType: 'salary_type', baseSalary: 'base_salary',
     specialAllowance: 'special_allowance', leaveQuotaOverride: 'leave_quota_override',
+    bankName: 'bank_name', bankAccount: 'bank_account', bankAccountName: 'bank_account_name',
   },
   attendance: {
     employeeId: 'employee_id', checkIn: 'check_in', checkOut: 'check_out',
@@ -484,7 +509,8 @@ const FIELD_MAP = {
   assets: {
     branchId: 'branch_id', serialNo: 'serial_no', purchaseDate: 'purchase_date',
     purchasePrice: 'purchase_price', usefulLife: 'useful_life', currentValue: 'current_value',
-    lastCheck: 'last_check',
+    lastCheck: 'last_check', assignedTo: 'assigned_to', assignedDate: 'assigned_date',
+    assignedNote: 'assigned_note',
   },
   payroll: {
     employeeId: 'employee_id', periodFrom: 'period_from', periodTo: 'period_to',
@@ -1420,7 +1446,7 @@ const LoginPage = ({ onLogin, addToast }) => {
             <div className="mt-8 pt-5 border-t border-ink-100 text-center space-y-1">
               <div className="flex items-center justify-center gap-1.5 text-[11px] text-ink-500">
                 <Icon name="lock" className="w-3 h-3" />
-                <span>การเชื่อมต่อ</span>
+                <span>การเชื่อมต่อปลอดภัยด้วยการเข้ารหัส</span>
               </div>
               <div className="text-[10px] text-ink-400">
                 © {new Date().getFullYear()} Freedom Flow Trading Co., Ltd. — All rights reserved
@@ -1451,6 +1477,8 @@ const Sidebar = ({ current, onChange, user, onLogout }) => {
     { id: 'assets',     label: 'ทรัพย์สิน',         icon: 'box' },
     { id: 'payroll',    label: 'เงินเดือน',         icon: 'tag' },
     { id: 'kpi',        label: 'ประเมิน KPI',       icon: 'target' },
+    { id: 'expenses',   label: 'เบิกค่าใช้จ่าย',     icon: 'receipt' },
+    { id: 'policies',   label: 'ระเบียบบริษัท',      icon: 'book' },
     { id: 'reports',    label: 'รายงาน',           icon: 'chart' },
     { id: 'branches',   label: 'สาขา',             icon: 'building' },
     { id: 'settings',   label: 'ตั้งค่า',          icon: 'settings' },
@@ -1463,9 +1491,9 @@ const Sidebar = ({ current, onChange, user, onLogout }) => {
     if (user.role === 'employee') {
       // ผู้จัดการภาค (regional) เห็นเพิ่ม: การเข้า-ออกงาน + การประเมิน KPI
       if (isRegionalManager) {
-        return ['dashboard','employees','attendance','leaves','kpi'].includes(m.id);
+        return ['dashboard','employees','attendance','leaves','kpi','expenses','policies'].includes(m.id);
       }
-      return ['dashboard','leaves'].includes(m.id);
+      return ['dashboard','leaves','expenses','policies'].includes(m.id);
     }
     if (user.role === 'manager')  return !['settings','branches'].includes(m.id);
     return true;
@@ -1518,7 +1546,7 @@ const Sidebar = ({ current, onChange, user, onLogout }) => {
 };
 
 const Topbar = ({ title, subtitle, action }) => {
-  const { leaves, assets, employees, user, setPage, refreshData, syncing, addToast } = useApp();
+  const { leaves, assets, employees, user, setPage, refreshData, syncing, addToast, settings } = useApp();
   const [open, setOpen] = useState(false);
 
   // สร้างรายการแจ้งเตือนจากข้อมูลจริง
@@ -1564,8 +1592,35 @@ const Topbar = ({ title, subtitle, action }) => {
       }
     }
 
+    // ทรัพย์สินค้างอยู่กับพนักงานที่ลาออกแล้ว (ต้องติดตามรับคืน)
+    if (['admin','hr','manager'].includes(user.role)) {
+      const inactiveIds = new Set(employees.filter(e => e.status === 'inactive').map(e => e.id));
+      const unreturdefine = assets.filter(a => a.assignedTo && inactiveIds.has(a.assignedTo)
+        && (user.role !== 'manager' || a.branchId === user.branchId));
+      if (unreturdefine.length > 0) {
+        list.push({
+          id: 'asset-unreturned', icon: 'box', color: 'red',
+          title: `ทรัพย์สินค้างกับพนักงานที่ลาออก ${unreturdefine.length} รายการ`,
+          desc: 'คลิกเพื่อติดตามรับคืน', page: 'assets',
+        });
+      }
+    }
+
+    // ใบเบิกค่าใช้จ่ายรออนุมัติ (admin/hr อนุมัติได้ทั้งหมด)
+    if (user.role === 'admin' || user.role === 'hr') {
+      const expenses = (settings && settings.expenses) || [];
+      const pendingExp = expenses.filter(e => e.status === 'pending');
+      if (pendingExp.length > 0) {
+        list.push({
+          id: 'expense-pending', icon: 'receipt', color: 'gold',
+          title: `มีใบเบิกค่าใช้จ่ายรออนุมัติ ${pendingExp.length} รายการ`,
+          desc: 'คลิกเพื่อไปหน้าเบิกค่าใช้จ่าย', page: 'expenses',
+        });
+      }
+    }
+
     return list;
-  }, [leaves, assets, employees, user]);
+  }, [leaves, assets, employees, user, settings]);
 
   return (
     <header className="bg-white border-b border-ink-100 sticky top-0 z-30">
@@ -2985,6 +3040,7 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
     email: '', phone: '', startDate: new Date().toISOString().split('T')[0],
     status: 'active', canApprove: false, approvalScope: 'none', canPayroll: false,
     salaryType: 'monthly', baseSalary: '', specialAllowance: '',
+    bankName: '', bankAccount: '', bankAccountName: '',
     leaveQuotaOverride: {}, photo: '',
   });
   const [showQuota, setShowQuota] = useState(false);
@@ -3205,6 +3261,40 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
               เงินเดือน/วัน = {fmtMoney(Number(form.baseSalary) / 30)} บาท (ฐาน ÷ 30)
             </div>
           )}
+        </div>
+
+        {/* บัญชีธนาคาร (สำหรับโอนเงินเดือน) */}
+        <div className="bg-ink-50 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Icon name="building" className="w-4 h-4 text-brand-600" />
+            <h4 className="font-medium text-ink-800">บัญชีธนาคาร (สำหรับโอนเงินเดือน)</h4>
+          </div>
+          <div className="grid md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ธนาคาร</label>
+              <Select value={form.bankName || ''} onChange={(e) => setForm({ ...form, bankName: e.target.value })}>
+                <option value="">— เลือกธนาคาร —</option>
+                <option value="KBANK">กสิกรไทย (KBANK)</option>
+                <option value="SCB">ไทยพาณิชย์ (SCB)</option>
+                <option value="KTB">กรุงไทย (KTB)</option>
+                <option value="BBL">กรุงเทพ (BBL)</option>
+                <option value="BAY">กรุงศรีอยุธยา (BAY)</option>
+                <option value="TTB">ทหารไทยธนชาต (TTB)</option>
+                <option value="GSB">ออมสิน (GSB)</option>
+                <option value="BAAC">ธ.ก.ส. (BAAC)</option>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">เลขที่บัญชี</label>
+              <Input value={form.bankAccount || ''} onChange={(e) => setForm({ ...form, bankAccount: e.target.value.replace(/[^0-9]/g, '') })}
+                placeholder="เลขบัญชี (ตัวเลขเท่านั้น)" maxLength={15} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ชื่อบัญชี</label>
+              <Input value={form.bankAccountName || ''} onChange={(e) => setForm({ ...form, bankAccountName: e.target.value })}
+                placeholder="ชื่อตามสมุดบัญชี" />
+            </div>
+          </div>
         </div>
 
         {/* สิทธิ์การอนุมัติวันลา */}
@@ -4900,6 +4990,7 @@ const AssetsPage = () => {
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [showImport, setShowImport] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   const canEdit = user.role === 'admin' || user.role === 'hr';
 
@@ -4964,12 +5055,14 @@ const AssetsPage = () => {
       <Topbar
         title="ทรัพย์สินบริษัท"
         subtitle={`ทั้งหมด ${filtered.length} รายการ`}
-        action={canEdit && (
+        action={
           <div className="flex gap-2">
-            <Button variant="outline" icon="upload" onClick={() => setShowImport(true)}>นำเข้า Excel</Button>
-            <Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มทรัพย์สิน</Button>
+            <Button variant="outline" icon="target" onClick={() => setShowScanner(true)}>สแกน QR</Button>
+            {canEdit && <>
+              <Button variant="outline" icon="upload" onClick={() => setShowImport(true)}>นำเข้า Excel</Button>
+              <Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มทรัพย์สิน</Button></>}
           </div>
-        )}
+        }
       />
 
       {/* Stat cards */}
@@ -5103,14 +5196,31 @@ const AssetsPage = () => {
         assets={assets}
         branches={branches}
         departments={departments}
+        employees={employees}
       />
 
       <AssetProfileModal
         asset={viewing}
         onClose={() => setViewing(null)}
         branches={branches}
+        employees={employees}
         onEdit={(a) => { setViewing(null); setEditing(a); setOpenForm(true); }}
         canEdit={canEdit}
+        onReturn={(a) => {
+          if (!confirm(`ยืนยันรับคืน "${a.name}" จากผู้ครอบครอง?`)) return;
+          const updated = { ...a, assignedTo: '', assignedDate: '', assignedNote: '', lastCheck: new Date().toISOString().split('T')[0] };
+          setAssets(assets.map(x => x.id === a.id ? updated : x));
+          if (api.enabled()) api.post('saveAsset', { data: updated }).catch(err => addToast('error', 'บันทึกไม่สำเร็จ'));
+          addToast('success', 'รับคืนทรัพย์สินเรียบร้อย');
+          setViewing(updated);
+        }}
+      />
+
+      <AssetScannerModal
+        open={showScanner}
+        onClose={() => setShowScanner(false)}
+        assets={assets}
+        onFound={(a) => { setShowScanner(false); setViewing(a); }}
       />
 
       <ImportAssetsModal
@@ -5140,7 +5250,7 @@ const AssetsPage = () => {
 };
 
 /* ===== ASSET FORM MODAL ===== */
-const AssetFormModal = ({ open, onClose, editing, onSave, assets, branches, departments }) => {
+const AssetFormModal = ({ open, onClose, editing, onSave, assets, branches, departments, employees }) => {
   const [form, setForm] = useState({});
 
   useEffect(() => {
@@ -5153,6 +5263,7 @@ const AssetFormModal = ({ open, onClose, editing, onSave, assets, branches, depa
         brand: '', serialNo: '', department: '', owner: '',
         purchaseDate: '', purchasePrice: '', usefulLife: '',
         currentValue: '', condition: 'ดีมาก', status: 'ใช้งานได้',
+        assignedTo: '', assignedDate: '', assignedNote: '',
         lastCheck: new Date().toISOString().split('T')[0], note: '',
       });
     }
@@ -5258,6 +5369,37 @@ const AssetFormModal = ({ open, onClose, editing, onSave, assets, branches, depa
           </div>
         </div>
 
+        {/* มอบหมายให้พนักงาน */}
+        <div className="bg-flow-50 border border-flow-100 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Icon name="users" className="w-4 h-4 text-flow-600" />
+            <h4 className="font-medium text-ink-800">มอบหมายให้พนักงาน (ผู้ครอบครอง)</h4>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">พนักงานผู้ครอบครอง</label>
+              <Select value={form.assignedTo || ''} onChange={(e) => {
+                const assignedTo = e.target.value;
+                setForm(f => ({ ...f, assignedTo, assignedDate: assignedTo && !f.assignedDate ? new Date().toISOString().split('T')[0] : f.assignedDate }));
+              }}>
+                <option value="">— ยังไม่มอบหมาย (อยู่ส่วนกลาง) —</option>
+                {(employees || []).filter(e => e.status !== 'inactive').slice().sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true})).map(e => (
+                  <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่มอบหมาย</label>
+              <Input type="date" value={form.assignedDate || ''} onChange={(e) => setForm({ ...form, assignedDate: e.target.value })} disabled={!form.assignedTo} />
+            </div>
+          </div>
+          {form.assignedTo && (
+            <div className="mt-2">
+              <Input value={form.assignedNote || ''} onChange={(e) => setForm({ ...form, assignedNote: e.target.value })} placeholder="หมายเหตุการมอบหมาย (เช่น เพื่อใช้งานที่สาขา)" className="text-sm" />
+            </div>
+          )}
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-ink-700 mb-1.5">หมายเหตุ</label>
           <Textarea rows={2} value={form.note || ''} onChange={(e) => setForm({ ...form, note: e.target.value })} />
@@ -5273,11 +5415,19 @@ const AssetFormModal = ({ open, onClose, editing, onSave, assets, branches, depa
 };
 
 /* ===== ASSET PROFILE MODAL ===== */
-const AssetProfileModal = ({ asset, onClose, branches, onEdit, canEdit }) => {
+const AssetProfileModal = ({ asset, onClose, branches, onEdit, canEdit, employees, onReturn }) => {
+  const qrRef = useRef(null);
+  useEffect(() => {
+    if (asset && qrRef.current && window.QRCode) {
+      window.QRCode.toCanvas(qrRef.current, asset.code || asset.id, { width: 120, margin: 1 }, () => {});
+    }
+  }, [asset]);
   if (!asset) return null;
   const branch = branches.find(b => b.id === asset.branchId);
   const cat = ASSET_CODE_MAP[asset.category];
   const fmtBaht = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+  const assignedEmp = (employees || []).find(e => e.id === asset.assignedTo);
+  const assignedInactive = assignedEmp && assignedEmp.status === 'inactive';
 
   const rows = [
     ['ยี่ห้อ / รุ่น', asset.brand],
@@ -5292,6 +5442,56 @@ const AssetProfileModal = ({ asset, onClose, branches, onEdit, canEdit }) => {
     ['สภาพ', asset.condition],
     ['ตรวจสอบล่าสุด', asset.lastCheck ? fmtDate(asset.lastCheck) : null],
   ].filter(([, v]) => v != null && v !== '');
+
+  // สร้าง barcode (Code128-like) จาก code — ใช้ SVG เส้นง่ายๆ จาก hash
+  const renderBarcode = (text) => {
+    if (!text) return null;
+    // สร้างแถบจากรหัสอักขระ (เลียนแบบ barcode — สแกนไม่ได้จริง แต่ใช้ดู/อ้างอิง)
+    let bars = [];
+    let x = 0;
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      for (let b = 0; b < 8; b++) {
+        const w = ((code >> b) & 1) ? 2.5 : 1.2;
+        if (b % 2 === 0) { bars.push(<rect key={`${i}-${b}`} x={x} y={0} width={w} height={40} fill="#1E293B" />); }
+        x += w;
+      }
+    }
+    return (
+      <svg width={x} height={40} viewBox={`0 0 ${x} 40`} className="max-w-full">{bars}</svg>
+    );
+  };
+
+  const printTag = async () => {
+    // สร้าง QR เป็น dataURL
+    let qrImg = '';
+    try {
+      if (window.QRCode) qrImg = await window.QRCode.toDataURL(asset.code || asset.id, { width: 160, margin: 1 });
+    } catch (e) {}
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const S = 'scr' + 'ipt';
+    win.document.write(`
+      <html><head><title>Asset Tag ${asset.code}</title>
+      <style>
+        body{font-family:'Sarabun',sans-serif;padding:20px;text-align:center}
+        .tag{border:2px solid #1E293B;border-radius:8px;padding:16px;display:inline-block;min-width:240px}
+        .name{font-size:18px;font-weight:bold;margin-bottom:4px}
+        .code{font-family:monospace;font-size:16px;color:#2563EB;margin:8px 0}
+        .meta{font-size:12px;color:#64748B}
+        img{width:140px;height:140px;margin:8px auto;display:block}
+      </style></head><body>
+      <div class="tag">
+        <div class="name">${asset.name}</div>
+        <div class="meta">${branch?.name || ''}</div>
+        ${qrImg ? `<img src="${qrImg}" alt="QR"/>` : ''}
+        <div class="code">${asset.code}</div>
+        <div class="meta">${asset.brand || ''} ${asset.serialNo ? '· S/N: ' + asset.serialNo : ''}</div>
+      </div>
+      <${S}>window.onload=()=>{window.print()}</${S}>
+      </body></html>`);
+    win.document.close();
+  };
 
   return (
     <Modal open={!!asset} onClose={onClose} title="รายละเอียดทรัพย์สิน" size="lg">
@@ -5309,6 +5509,41 @@ const AssetProfileModal = ({ asset, onClose, branches, onEdit, canEdit }) => {
         {canEdit && <Button variant="outline" size="sm" icon="edit" onClick={() => onEdit(asset)}>แก้ไข</Button>}
       </div>
 
+      {/* แจ้งเตือนพนักงานลาออกแต่ทรัพย์สินยังอยู่ */}
+      {assignedInactive && (
+        <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
+          <Icon name="info" className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <div className="font-semibold text-red-700">⚠ พนักงานผู้ครอบครองลาออกแล้ว</div>
+            <div className="text-ink-600 text-xs mt-0.5">
+              {assignedEmp.firstName} {assignedEmp.lastName} ({assignedEmp.id}) ลาออกแล้ว แต่ทรัพย์สินนี้ยังอยู่ในความครอบครอง — ควรติดตามรับคืน
+            </div>
+            {canEdit && onReturn && (
+              <button onClick={() => onReturn(asset)} className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700">ยืนยันรับคืนทรัพย์สิน</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ผู้ครอบครองปัจจุบัน */}
+      {assignedEmp && !assignedInactive && (
+        <div className="mt-4 bg-flow-50 border border-flow-100 rounded-xl p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Icon name="users" className="w-4 h-4 text-flow-600" />
+              <div>
+                <div className="text-sm font-medium text-ink-900">{assignedEmp.firstName} {assignedEmp.lastName}</div>
+                <div className="text-xs text-ink-400">ผู้ครอบครอง · ตั้งแต่ {asset.assignedDate ? fmtDate(asset.assignedDate) : '-'}</div>
+              </div>
+            </div>
+            {canEdit && onReturn && (
+              <button onClick={() => onReturn(asset)} className="text-xs px-3 py-1.5 rounded-lg border border-flow-300 text-flow-700 hover:bg-flow-100">รับคืน</button>
+            )}
+          </div>
+          {asset.assignedNote && <div className="text-xs text-ink-500 mt-1.5">{asset.assignedNote}</div>}
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3 mt-4">
         {rows.map(([label, value]) => (
           <div key={label} className="flex justify-between gap-3 py-1.5 border-b border-ink-50">
@@ -5316,6 +5551,19 @@ const AssetProfileModal = ({ asset, onClose, branches, onEdit, canEdit }) => {
             <span className="text-sm text-ink-900 font-medium text-right">{value}</span>
           </div>
         ))}
+      </div>
+
+      {/* QR Code / Asset tag */}
+      <div className="mt-4 bg-white border border-ink-200 rounded-xl p-4 text-center">
+        <div className="text-xs text-ink-500 mb-2">QR Code / Asset Tag</div>
+        <div className="flex flex-col items-center gap-2">
+          <canvas ref={qrRef} className="rounded-lg" />
+          <div className="flex justify-center scale-90">{renderBarcode(asset.code)}</div>
+        </div>
+        <div className="font-mono text-sm text-ink-700 mt-1">{asset.code}</div>
+        <button onClick={printTag} className="mt-3 text-xs px-3 py-1.5 rounded-lg border border-ink-200 hover:bg-ink-50 inline-flex items-center gap-1.5">
+          <Icon name="file" className="w-3.5 h-3.5" /> พิมพ์ป้ายติดทรัพย์สิน
+        </button>
       </div>
 
       {asset.note && (
@@ -5329,6 +5577,117 @@ const AssetProfileModal = ({ asset, onClose, branches, onEdit, canEdit }) => {
 };
 
 /* ===== IMPORT ASSETS MODAL ===== */
+/* ===== ASSET SCANNER MODAL — สแกน QR/บาร์โค้ดด้วยกล้อง ===== */
+const AssetScannerModal = ({ open, onClose, assets, onFound }) => {
+  const [status, setStatus] = useState('idle');   // idle | scanning | notfound | error
+  const [manual, setManual] = useState('');
+  const [lastCode, setLastCode] = useState('');
+  const scannerRef = useRef(null);
+  const divId = 'qr-reader-box';
+
+  // ค้นหาทรัพย์สินจากรหัส (code หรือ id)
+  const lookup = (text) => {
+    const q = String(text || '').trim();
+    if (!q) return null;
+    return assets.find(a =>
+      String(a.code || '').toLowerCase() === q.toLowerCase() ||
+      String(a.id || '').toLowerCase() === q.toLowerCase()
+    );
+  };
+
+  const handleResult = (text) => {
+    setLastCode(text);
+    const found = lookup(text);
+    if (found) {
+      stopScanner();
+      onFound(found);
+    } else {
+      setStatus('notfound');
+    }
+  };
+
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      try { scannerRef.current.stop().then(() => scannerRef.current?.clear()).catch(() => {}); } catch (e) {}
+      scannerRef.current = null;
+    }
+  };
+
+  const startScanner = async () => {
+    if (!window.Html5Qrcode) { setStatus('error'); return; }
+    setStatus('scanning');
+    try {
+      const scanner = new window.Html5Qrcode(divId);
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: 'environment' },     // กล้องหลัง
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decodedText) => handleResult(decodedText),
+        () => {}                            // ignore scan errors
+      );
+    } catch (err) {
+      setStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    if (open) { setStatus('idle'); setManual(''); setLastCode(''); }
+    return () => stopScanner();
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <Modal open={open} onClose={() => { stopScanner(); onClose(); }} title="สแกน QR / บาร์โค้ด ทรัพย์สิน" size="md">
+      <div className="space-y-4">
+        {/* กล้อง */}
+        <div className="bg-ink-900 rounded-xl overflow-hidden relative" style={{ minHeight: status === 'scanning' ? 280 : 0 }}>
+          <div id={divId} className="w-full" />
+        </div>
+
+        {status === 'idle' && (
+          <div className="text-center py-6">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-brand-50 flex items-center justify-center mb-3">
+              <Icon name="target" className="w-8 h-8 text-brand-600" />
+            </div>
+            <p className="text-sm text-ink-600 mb-4">กดปุ่มเพื่อเปิดกล้องสแกน QR Code บนป้ายทรัพย์สิน</p>
+            <Button icon="target" onClick={startScanner}>เปิดกล้องสแกน</Button>
+          </div>
+        )}
+
+        {status === 'scanning' && (
+          <p className="text-center text-sm text-ink-500">เล็งกล้องไปที่ QR Code บนป้ายทรัพย์สิน...</p>
+        )}
+
+        {status === 'notfound' && (
+          <div className="bg-gold-50 border border-gold-200 rounded-xl p-4 text-center">
+            <div className="text-sm font-medium text-gold-800">ไม่พบทรัพย์สินรหัส "{lastCode}"</div>
+            <div className="text-xs text-ink-500 mt-1">รหัสนี้อาจไม่มีในระบบ</div>
+            <Button size="sm" variant="outline" onClick={() => { setStatus('idle'); }} className="mt-3">สแกนใหม่</Button>
+          </div>
+        )}
+
+        {status === 'error' && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center text-sm text-red-700">
+            ไม่สามารถเปิดกล้องได้ — กรุณาอนุญาตการเข้าถึงกล้อง หรือใช้ค้นหาด้วยรหัสด้านล่าง
+          </div>
+        )}
+
+        {/* ค้นหาด้วยรหัสมือ (สำรอง) */}
+        <div className="border-t border-ink-100 pt-4">
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">หรือพิมพ์รหัสทรัพย์สินเพื่อค้นหา</label>
+          <div className="flex gap-2">
+            <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="เช่น FFC-OF-COM-0001"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleResult(manual); }} className="flex-1 font-mono" />
+            <Button onClick={() => handleResult(manual)} disabled={!manual.trim()}>ค้นหา</Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+/* ===== IMPORT ASSETS MODAL (เดิม) ===== */
 const ImportAssetsModal = ({ open, onClose, existingAssets, branches, onImport }) => {
   const fileRef = useRef(null);
   const [preview, setPreview] = useState(null);
@@ -5611,9 +5970,21 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     workedDays = attendedDays;
     baseSalary = perDay * (attendedDays + leaveDaysTotal);
   } else {
-    // รายเดือน: ถ้ารอบเต็มเดือน = ฐานเต็ม, ถ้ารอบสั้นกว่า = prorate ตามจำนวนวัน
+    // รายเดือน: จ่ายฐานเต็มถ้ารอบครอบคลุม "ทั้งเดือน" (หรือเกือบเต็ม)
+    // ไม่ prorate ตามวันสแกน — พนักงานรายเดือนได้เงินเดือนเต็ม แล้วหักเฉพาะขาด/ลาเกินสิทธิ์
     workedDays = attendedDays;
-    baseSalary = rangeDays >= 26 ? base : perDay * rangeDays;
+    // นับจำนวนวันปฏิทินในรอบ (รวมทุกวัน) เทียบกับจำนวนวันในเดือนนั้น
+    const fromD = new Date(from + 'T00:00:00');
+    const toD = new Date(to + 'T00:00:00');
+    const calendarDays = Math.round((toD - fromD) / 86400000) + 1;  // จำนวนวันในรอบ
+    const daysInMonth = new Date(fromD.getFullYear(), fromD.getMonth() + 1, 0).getDate();
+    // ถ้ารอบครอบคลุม >= 90% ของเดือน (เช่น ทั้งเดือน) = จ่ายฐานเต็ม
+    if (calendarDays >= daysInMonth * 0.9) {
+      baseSalary = base;                          // เงินเดือนเต็ม
+    } else {
+      // รอบสั้น (เช่น ครึ่งเดือน) = prorate ตามสัดส่วนวันปฏิทิน
+      baseSalary = Math.round((base * calendarDays / daysInMonth) * 100) / 100;
+    }
   }
 
   // ===== หักมาสาย =====
@@ -5736,6 +6107,7 @@ const PayrollPage = () => {
   const [slip, setSlip] = useState(null);
   const [selected, setSelected] = useState([]);   // id ที่เลือกพิมพ์รวม
   const [showSummary, setShowSummary] = useState(false);  // modal export สรุป
+  const [showBankFile, setShowBankFile] = useState(false);  // modal export ไฟล์โอนเงิน
 
   const myEmp = employees.find(e => e.id === user.empId);
   const hasPayrollAccess = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
@@ -5813,6 +6185,7 @@ const PayrollPage = () => {
         action={canEdit && (
           <div className="flex gap-2">
             <Button variant="outline" icon="download" onClick={() => setShowSummary(true)}>Export สรุป</Button>
+            <Button variant="outline" icon="building" onClick={() => setShowBankFile(true)}>ไฟล์โอนเงิน</Button>
             <Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มเงินเดือน</Button>
           </div>
         )}
@@ -5945,6 +6318,7 @@ const PayrollPage = () => {
         editing={editing}
         onSave={savePayroll}
         employees={employees.filter(e => user.role !== 'manager' || e.branchId === user.branchId)}
+        branches={branches}
         defaultPeriod={month}
         attendance={attendance}
         leaves={leaves}
@@ -5969,7 +6343,144 @@ const PayrollPage = () => {
         defaultMonth={month}
         lockedBranch={user.role === 'manager' ? user.branchId : null}
       />
+
+      <BankTransferModal
+        open={showBankFile}
+        onClose={() => setShowBankFile(false)}
+        payroll={payroll}
+        employees={employees}
+        branches={branches}
+        settings={settings}
+        defaultMonth={month}
+        lockedBranch={user.role === 'manager' ? user.branchId : null}
+      />
     </div>
+  );
+};
+
+/* ===== BANK TRANSFER MODAL — สร้างไฟล์โอนเงินเดือน (K-BANK) ===== */
+const BankTransferModal = ({ open, onClose, payroll, employees, branches, settings, defaultMonth, lockedBranch }) => {
+  const [month, setMonth] = useState(defaultMonth);
+  const [branch, setBranch] = useState(lockedBranch || 'all');
+  const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
+
+  useEffect(() => { setMonth(defaultMonth); }, [defaultMonth, open]);
+  useEffect(() => { if (lockedBranch) setBranch(lockedBranch); }, [lockedBranch]);
+
+  if (!open) return null;
+
+  // record เงินเดือนเดือนที่เลือก + มีบัญชีธนาคาร
+  const monthRecs = (payroll || []).filter(p => {
+    const pMonth = p.periodFrom ? String(p.periodFrom).slice(0, 7) : p.period;
+    if (pMonth !== month) return false;
+    const emp = employees.find(e => e.id === p.employeeId);
+    if (!emp) return false;
+    if (branch !== 'all' && emp.branchId !== branch) return false;
+    return true;
+  });
+
+  // แยกคนที่มี/ไม่มีบัญชี
+  const withBank = [], noBank = [];
+  monthRecs.forEach(p => {
+    const emp = employees.find(e => e.id === p.employeeId);
+    if (emp?.bankAccount && emp?.bankName) withBank.push({ p, emp });
+    else noBank.push({ p, emp });
+  });
+
+  const totalAmount = withBank.reduce((s, { p }) => s + calcPayroll(p).net, 0);
+
+  // สร้างไฟล์ K-BANK (K-Cash Connect Plus — Standard text format)
+  // รูปแบบ: receiving bank, account, amount, name, ref (CSV-style ที่ K BIZ รองรับ)
+  const downloadKBank = () => {
+    if (withBank.length === 0) { alert('ไม่มีพนักงานที่มีข้อมูลบัญชีธนาคาร'); return; }
+    const dt = transferDate.replace(/-/g, '');
+    const rows = [];
+    // หัวตาราง (รูปแบบที่นำเข้า K BIZ / K-Cash Connect ได้ + อ่านง่าย)
+    rows.push(['ลำดับ', 'รหัสพนักงาน', 'ชื่อบัญชี', 'ธนาคาร', 'เลขที่บัญชี', 'จำนวนเงิน', 'วันที่โอน', 'รายการ']);
+    withBank.forEach(({ p, emp }, i) => {
+      const net = calcPayroll(p).net;
+      rows.push([
+        i + 1, emp.id,
+        emp.bankAccountName || `${emp.firstName} ${emp.lastName}`,
+        emp.bankName, emp.bankAccount,
+        net.toFixed(2), dt,
+        `เงินเดือน ${month}`,
+      ]);
+    });
+    // แถวรวม
+    rows.push(['', '', '', '', 'รวม', totalAmount.toFixed(2), '', `${withBank.length} รายการ`]);
+
+    const XLSXlib = window.XLSX;
+    const ws = XLSXlib.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:6},{wch:10},{wch:28},{wch:14},{wch:16},{wch:14},{wch:12},{wch:20}];
+    const wb = XLSXlib.utils.book_new();
+    XLSXlib.utils.book_append_sheet(wb, ws, 'KBANK_Transfer');
+    XLSXlib.writeFile(wb, `โอนเงินเดือน_KBANK_${month}.xlsx`);
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="สร้างไฟล์โอนเงินเดือน (กสิกรไทย)" size="lg">
+      <div className="space-y-4">
+        <div className="grid md:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">เดือน</label>
+            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+            <Select value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!!lockedBranch}>
+              {!lockedBranch && <option value="all">ทุกสาขา</option>}
+              {branches.filter(b => !lockedBranch || b.id === lockedBranch).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่โอน</label>
+            <Input type="date" value={transferDate} onChange={(e) => setTransferDate(e.target.value)} />
+          </div>
+        </div>
+
+        {/* สรุป */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
+            <div className="text-xs text-ink-500">พร้อมโอน</div>
+            <div className="font-display text-xl font-bold text-emerald-700">{withBank.length}</div>
+          </div>
+          <div className="bg-gold-50 border border-gold-100 rounded-xl p-3 text-center">
+            <div className="text-xs text-ink-500">ไม่มีบัญชี</div>
+            <div className="font-display text-xl font-bold text-gold-700">{noBank.length}</div>
+          </div>
+          <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 text-center">
+            <div className="text-xs text-ink-500">ยอดรวม</div>
+            <div className="font-display text-lg font-bold text-brand-700">{fmtMoney(totalAmount)}</div>
+          </div>
+        </div>
+
+        {/* เตือนคนไม่มีบัญชี */}
+        {noBank.length > 0 && (
+          <div className="bg-gold-50 border border-gold-200 rounded-xl p-3">
+            <div className="text-sm font-medium text-gold-800 mb-1">⚠ {noBank.length} คนยังไม่มีข้อมูลบัญชี (จะไม่อยู่ในไฟล์โอน)</div>
+            <div className="text-xs text-ink-600">
+              {noBank.slice(0, 5).map(({ emp }) => emp ? `${emp.firstName} ${emp.lastName}` : '-').join(', ')}
+              {noBank.length > 5 ? ` และอีก ${noBank.length - 5} คน` : ''}
+            </div>
+            <div className="text-xs text-ink-500 mt-1">→ ไปเพิ่มบัญชีธนาคารในหน้าพนักงาน</div>
+          </div>
+        )}
+
+        {monthRecs.length === 0 && (
+          <div className="bg-ink-50 rounded-xl p-6 text-center text-sm text-ink-400">ไม่มีข้อมูลเงินเดือนในเดือน/สาขานี้</div>
+        )}
+
+        <div className="bg-flow-50 border border-flow-200 rounded-xl p-3 text-xs text-ink-700">
+          ไฟล์ Excel มีรายการ: ชื่อบัญชี, ธนาคาร, เลขบัญชี, จำนวนเงิน — นำไปอัปโหลดใน <strong>K BIZ / K-Cash Connect Plus</strong> เพื่อโอนแบบ Bulk Payment
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
+          <Button variant="secondary" onClick={onClose}>ปิด</Button>
+          <Button icon="download" onClick={downloadKBank} disabled={withBank.length === 0}>ดาวน์โหลดไฟล์โอนเงิน</Button>
+        </div>
+      </div>
+    </Modal>
   );
 };
 
@@ -6102,9 +6613,10 @@ const ExportPayrollSummaryModal = ({ open, onClose, payroll, employees, branches
     </Modal>
   );
 };
-const PayrollFormModal = ({ open, onClose, editing, onSave, employees, defaultPeriod, attendance, leaves, leaveTypes, settings }) => {
+const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches, defaultPeriod, attendance, leaves, leaveTypes, settings }) => {
   const [form, setForm] = useState({});
   const [autoInfo, setAutoInfo] = useState(null);  // ผลการคำนวณอัตโนมัติ
+  const [filterBranch, setFilterBranch] = useState('all');  // กรองพนักงานตามสาขา
 
   useEffect(() => {
     if (editing) {
@@ -6211,8 +6723,18 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, defaultPe
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">พนักงาน</label>
+            {!editing && (
+              <Select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)} className="mb-2">
+                <option value="all">ทุกสาขา</option>
+                {(branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </Select>
+            )}
             <Select value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} disabled={!!editing} required>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.id})</option>)}
+              {employees
+                .filter(e => filterBranch === 'all' || e.branchId === filterBranch)
+                .slice()
+                .sort((a, b) => String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true }))
+                .map(e => <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName}</option>)}
             </Select>
           </div>
 
@@ -7422,9 +7944,786 @@ const KpiViewModal = ({ record, onClose, employees, branches }) => {
 };
 
 
-/* =============================================================
-   REPORTS PAGE
-   ============================================================= */
+/* ═══════════════════════════════════════════════════════════
+   EXPENSES PAGE — เบิกค่าใช้จ่าย (ใบขออนุมัติเดินทาง + เบี้ยเลี้ยง)
+   ตามระเบียบเบี้ยเลี้ยงเดินทาง FFC (มีผล 1 ก.ค. 2569)
+═══════════════════════════════════════════════════════════ */
+
+// อัตราเบี้ยเลี้ยงตามระดับ (ต่างจังหวัดค้างคืน)
+const PER_DIEM_RATES = {
+  1: { label: 'ระดับ 1 — ปฏิบัติการ/เจ้าหน้าที่', perDiem: 200, lodging: 550, carRate: 4 },
+  2: { label: 'ระดับ 2 — อาวุโส/หัวหน้างาน',     perDiem: 230, lodging: 650, carRate: 4 },
+  3: { label: 'ระดับ 3 — ผู้จัดการขึ้นไป',        perDiem: 250, lodging: 700, carRate: 4 },
+};
+const PER_DIEM_TAX_FREE_CAP = 270;   // เบี้ยเลี้ยงยกเว้นภาษีสูงสุด/วัน
+const OWN_CAR_RATE = 5;              // รถส่วนตัว 5 บาท/กม. (ไป-กลับ)
+
+// คำนวณเบี้ยเลี้ยงออกพื้นที่ไม่ค้างคืน ตามชั่วโมง
+const calcOffsitePerDiem = (level, hours) => {
+  const rate = PER_DIEM_RATES[level]?.perDiem || 0;
+  if (hours <= 4) return 0;              // ไม่เกิน 4 ชม. = ไม่จ่าย
+  if (hours <= 8) return rate * 0.5;     // 4-8 ชม. = 50%
+  return rate;                           // เกิน 8 ชม. = 100%
+};
+
+const ExpensesPage = () => {
+  const { employees, branches, user, settings, setSettings, addToast } = useApp();
+  const [openForm, setOpenForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  const canApproveAll = user.role === 'admin' || user.role === 'hr';
+  const myEmp = employees.find(e => e.id === user.empId);
+
+  // เก็บใน settings.expenses (array)
+  const expenses = (settings && settings.expenses) || [];
+
+  const saveExpenses = async (list) => {
+    const newSettings = { ...settings, expenses: list };
+    setSettings(newSettings);
+    if (api.enabled()) {
+      try { await api.post('saveSettings', { data: newSettings }); }
+      catch (err) { addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message); }
+    }
+  };
+
+  const saveOne = (exp) => {
+    let list;
+    if (expenses.some(e => e.id === exp.id)) list = expenses.map(e => e.id === exp.id ? exp : e);
+    else list = [...expenses, exp];
+    saveExpenses(list);
+    addToast('success', editing ? 'บันทึกเรียบร้อย' : 'สร้างใบเบิกเรียบร้อย');
+    setOpenForm(false); setEditing(null);
+  };
+
+  const setStatus = (id, status) => {
+    saveExpenses(expenses.map(e => e.id === id ? { ...e, status, approvedBy: user.name || user.username, approvedAt: new Date().toISOString() } : e));
+    addToast('success', status === 'approved' ? 'อนุมัติแล้ว' : 'ปฏิเสธแล้ว');
+  };
+
+  const deleteOne = (id) => {
+    if (!confirm('ลบใบเบิกนี้?')) return;
+    saveExpenses(expenses.filter(e => e.id !== id));
+    addToast('success', 'ลบเรียบร้อย');
+  };
+
+  // กรองตามสิทธิ์ + สถานะ
+  const visible = expenses.filter(e => {
+    if (!canApproveAll && e.employeeId !== user.empId) return false;  // พนักงานเห็นแค่ของตัวเอง
+    if (filterStatus !== 'all' && e.status !== filterStatus) return false;
+    return true;
+  }).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+  const STATUS = {
+    pending:  { label: 'รออนุมัติ', color: 'gold' },
+    approved: { label: 'อนุมัติแล้ว', color: 'emerald' },
+    rejected: { label: 'ปฏิเสธ', color: 'red' },
+    paid:     { label: 'จ่ายแล้ว', color: 'flow' },
+  };
+
+  const fmtDate = (iso) => { try { const d = new Date(iso); return `${d.getDate()}/${d.getMonth()+1}/${(d.getFullYear()+543)%100}`; } catch { return ''; } };
+
+  return (
+    <div className="p-8 space-y-6 animate-fade-up">
+      <Topbar title="เบิกค่าใช้จ่าย" subtitle="ใบขออนุมัติเดินทางและเบิกเบี้ยเลี้ยง"
+        action={<Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>สร้างใบเบิก</Button>}
+      />
+
+      {/* filter สถานะ */}
+      <div className="flex gap-1 bg-ink-100 p-1 rounded-xl w-fit">
+        {[['all','ทั้งหมด'],['pending','รออนุมัติ'],['approved','อนุมัติแล้ว'],['paid','จ่ายแล้ว']].map(([id,label]) => (
+          <button key={id} onClick={() => setFilterStatus(id)}
+            className={cls('px-4 py-2 rounded-lg text-sm font-medium transition-colors', filterStatus === id ? 'bg-white text-brand-700 shadow-soft' : 'text-ink-600 hover:text-ink-900')}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <Card className="overflow-hidden">
+        {visible.length === 0 ? (
+          <Empty icon="receipt" title="ยังไม่มีใบเบิก" desc='คลิก "สร้างใบเบิก" เพื่อขออนุมัติเดินทาง/เบิกเบี้ยเลี้ยง' />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-ink-50 text-ink-600 text-left">
+                <tr>
+                  <th className="px-5 py-3 font-medium">ผู้ขอเบิก</th>
+                  <th className="px-5 py-3 font-medium">ปลายทาง / งาน</th>
+                  <th className="px-5 py-3 font-medium">วันที่</th>
+                  <th className="px-5 py-3 font-medium text-right">ยอดรวม</th>
+                  <th className="px-5 py-3 font-medium text-center">สถานะ</th>
+                  <th className="px-5 py-3 font-medium text-right">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100">
+                {visible.map(exp => {
+                  const emp = employees.find(e => e.id === exp.employeeId);
+                  const st = STATUS[exp.status] || STATUS.pending;
+                  return (
+                    <tr key={exp.id} className="hover:bg-flow-50/40">
+                      <td className="px-5 py-3">
+                        <div className="font-medium text-ink-900">{emp ? `${emp.firstName} ${emp.lastName}` : exp.employeeId}</div>
+                        <div className="text-xs text-ink-400">{exp.employeeId}</div>
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="text-ink-800">{exp.destination || '-'}</div>
+                        <div className="text-xs text-ink-400 truncate max-w-[200px]">{exp.purpose || ''}</div>
+                      </td>
+                      <td className="px-5 py-3 text-ink-600">{fmtDate(exp.dateFrom)}{exp.dateTo && exp.dateTo !== exp.dateFrom ? ` - ${fmtDate(exp.dateTo)}` : ''}</td>
+                      <td className="px-5 py-3 text-right font-display font-semibold text-ink-900">{fmtMoney(exp.total || 0)}</td>
+                      <td className="px-5 py-3 text-center">
+                        <span className={cls('text-xs font-medium px-2.5 py-1 rounded-lg', `bg-${st.color}-50 text-${st.color}-700`)}>{st.label}</span>
+                        {exp.slipData && <span className="ml-1 inline-flex items-center" title="มีสลิปโอนเงิน"><Icon name="receipt" className="w-3.5 h-3.5 text-emerald-500" /></span>}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="inline-flex gap-1">
+                          <button onClick={() => { setEditing(exp); setOpenForm(true); }} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700" title="ดู/แก้ไข"><Icon name="edit" className="w-4 h-4" /></button>
+                          {canApproveAll && exp.status === 'pending' && (
+                            <>
+                              <button onClick={() => setStatus(exp.id, 'approved')} className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50" title="อนุมัติ"><Icon name="check" className="w-4 h-4" /></button>
+                              <button onClick={() => setStatus(exp.id, 'rejected')} className="p-1.5 rounded-lg text-red-500 hover:bg-red-50" title="ปฏิเสธ"><Icon name="x" className="w-4 h-4" /></button>
+                            </>
+                          )}
+                          {canApproveAll && exp.status === 'approved' && (
+                            <button onClick={() => setStatus(exp.id, 'paid')} className="p-1.5 rounded-lg text-flow-600 hover:bg-flow-50" title="ทำเครื่องหมายจ่ายแล้ว"><Icon name="tag" className="w-4 h-4" /></button>
+                          )}
+                          <button onClick={() => deleteOne(exp.id)} className="p-1.5 rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600" title="ลบ"><Icon name="trash" className="w-4 h-4" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {openForm && (
+        <ExpenseFormModal
+          open={openForm}
+          onClose={() => { setOpenForm(false); setEditing(null); }}
+          editing={editing}
+          onSave={saveOne}
+          employees={employees}
+          myEmp={myEmp}
+          canApproveAll={canApproveAll}
+        />
+      )}
+    </div>
+  );
+};
+
+/* ───────────── EXPENSE FORM MODAL — ใบขออนุมัติเดินทาง + เบิกเบี้ยเลี้ยง ───────────── */
+const ExpenseFormModal = ({ open, onClose, editing, onSave, employees, myEmp, canApproveAll }) => {
+  const [form, setForm] = useState({});
+
+  useEffect(() => {
+    if (editing) setForm(JSON.parse(JSON.stringify(editing)));
+    else setForm({
+      id: '', employeeId: myEmp?.id || '', level: 1, tripType: 'overnight',
+      destination: '', purpose: '', dateFrom: new Date().toISOString().split('T')[0], dateTo: '',
+      days: 1, offsiteHours: 0,
+      lodgingActual: 0, carKm: 0, transportActual: 0, otherCost: 0,
+      status: 'pending', note: '', createdAt: new Date().toISOString(),
+    });
+  }, [editing, open, myEmp]);
+
+  if (!open) return null;
+
+  const rate = PER_DIEM_RATES[form.level] || PER_DIEM_RATES[1];
+
+  // คำนวณแต่ละส่วน
+  const calc = () => {
+    let perDiemTotal = 0;
+    if (form.tripType === 'overnight') {
+      perDiemTotal = (Number(form.days) || 0) * rate.perDiem;     // ค้างคืน: เบี้ยเลี้ยง × วัน
+    } else {
+      perDiemTotal = calcOffsitePerDiem(form.level, Number(form.offsiteHours) || 0);  // ไปเช้าเย็นกลับ
+    }
+    const lodging = Math.min(Number(form.lodgingActual) || 0, rate.lodging * (Number(form.days) || 1));  // ไม่เกินเพดาน
+    const carCost = (Number(form.carKm) || 0) * OWN_CAR_RATE;
+    const transport = Number(form.transportActual) || 0;
+    const other = Number(form.otherCost) || 0;
+    const total = perDiemTotal + lodging + carCost + transport + other;
+    return { perDiemTotal, lodging, carCost, transport, other, total };
+  };
+  const c = calc();
+  const lodgingCap = rate.lodging * (Number(form.days) || 1);
+  const overLodging = (Number(form.lodgingActual) || 0) > lodgingCap;
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.employeeId) return alert('กรุณาเลือกผู้ขอเบิก');
+    if (!form.destination.trim()) return alert('กรุณาระบุปลายทาง');
+    onSave({ ...form, id: form.id || `EXP${Date.now()}`, total: c.total, breakdown: c });
+  };
+
+  const readOnly = editing && editing.status !== 'pending' && !canApproveAll;
+
+  return (
+    <Modal open={open} onClose={onClose} title={editing ? 'รายละเอียดใบเบิก' : 'สร้างใบเบิกค่าใช้จ่าย'} size="xl">
+      <form onSubmit={submit} className="space-y-4">
+        {/* ข้อมูลทั่วไป */}
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้ขอเบิก</label>
+            <Select value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} disabled={readOnly || (!canApproveAll && !!myEmp)} required>
+              <option value="">— เลือก —</option>
+              {employees.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true})).map(e => <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName}</option>)}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ระดับตำแหน่ง (เบี้ยเลี้ยง)</label>
+            <Select value={form.level} onChange={(e) => setForm({ ...form, level: Number(e.target.value) })} disabled={readOnly}>
+              {Object.entries(PER_DIEM_RATES).map(([lv, r]) => <option key={lv} value={lv}>{r.label} ({r.perDiem}฿/วัน)</option>)}
+            </Select>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ปลายทาง</label>
+            <Input value={form.destination || ''} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder="เช่น มหาสารคาม" disabled={readOnly} required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ลักษณะงาน</label>
+            <Input value={form.purpose || ''} onChange={(e) => setForm({ ...form, purpose: e.target.value })} placeholder="เช่น ตรวจสต็อกสาขา" disabled={readOnly} />
+          </div>
+        </div>
+
+        {/* ประเภทการเดินทาง */}
+        <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 space-y-3">
+          <div className="flex gap-2">
+            {[['overnight','ค้างคืน (ต่างจังหวัด)'],['offsite','ไปเช้า-เย็นกลับ (ไม่ค้างคืน)']].map(([v,label]) => (
+              <button key={v} type="button" onClick={() => !readOnly && setForm({ ...form, tripType: v })}
+                className={cls('flex-1 py-2 rounded-lg text-sm font-medium border transition-colors', form.tripType === v ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-ink-600 border-ink-200')}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {form.tripType === 'overnight' ? (
+            <div className="grid md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่ไป</label>
+                <Input type="date" value={form.dateFrom || ''} onChange={(e) => {
+                  const dateFrom = e.target.value;
+                  // คำนวณจำนวนวันอัตโนมัติ (นับรวมวันไปและวันกลับ)
+                  let days = form.days;
+                  if (dateFrom && form.dateTo) {
+                    const diff = Math.round((new Date(form.dateTo) - new Date(dateFrom)) / 86400000) + 1;
+                    if (diff > 0) days = diff;
+                  }
+                  setForm({ ...form, dateFrom, days });
+                }} disabled={readOnly} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่กลับ</label>
+                <Input type="date" value={form.dateTo || ''} min={form.dateFrom || ''} onChange={(e) => {
+                  const dateTo = e.target.value;
+                  let days = form.days;
+                  if (form.dateFrom && dateTo) {
+                    const diff = Math.round((new Date(dateTo) - new Date(form.dateFrom)) / 86400000) + 1;
+                    if (diff > 0) days = diff;
+                  }
+                  setForm({ ...form, dateTo, days });
+                }} disabled={readOnly} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">จำนวนวัน</label>
+                <Input type="number" min={1} value={form.days || 1} onChange={(e) => setForm({ ...form, days: Number(e.target.value) })} disabled={readOnly} />
+                <p className="text-xs text-ink-400 mt-1">คำนวณอัตโนมัติ (แก้ได้)</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่</label>
+                <Input type="date" value={form.dateFrom || ''} onChange={(e) => setForm({ ...form, dateFrom: e.target.value })} disabled={readOnly} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">ชั่วโมงปฏิบัติงานนอกสถานที่</label>
+                <Input type="number" min={0} step={0.5} value={form.offsiteHours || 0} onChange={(e) => setForm({ ...form, offsiteHours: Number(e.target.value) })} disabled={readOnly} />
+                <p className="text-xs text-ink-400 mt-1">≤4ชม.=ไม่จ่าย · 4-8ชม.=50% · &gt;8ชม.=100%</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ค่าใช้จ่ายตามจริง */}
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ค่าที่พักจริง (เพดาน {fmtMoney(lodgingCap)})</label>
+            <Input type="number" min={0} value={form.lodgingActual || 0} onChange={(e) => setForm({ ...form, lodgingActual: Number(e.target.value) })} disabled={readOnly || form.tripType === 'offsite'} />
+            {overLodging && <p className="text-xs text-gold-600 mt-1">⚠ เกินเพดาน จะเบิกได้ {fmtMoney(lodgingCap)}</p>}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ระยะทางรถส่วนตัว (กม. ไป-กลับ) × {OWN_CAR_RATE}฿</label>
+            <Input type="number" min={0} value={form.carKm || 0} onChange={(e) => setForm({ ...form, carKm: Number(e.target.value) })} disabled={readOnly} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ค่าเดินทางอื่น (ตั๋ว/ทางด่วน/แท็กซี่)</label>
+            <Input type="number" min={0} value={form.transportActual || 0} onChange={(e) => setForm({ ...form, transportActual: Number(e.target.value) })} disabled={readOnly} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ค่าใช้จ่ายอื่นๆ</label>
+            <Input type="number" min={0} value={form.otherCost || 0} onChange={(e) => setForm({ ...form, otherCost: Number(e.target.value) })} disabled={readOnly} />
+          </div>
+        </div>
+
+        {/* สรุปยอด */}
+        <div className="bg-ink-50 rounded-xl p-4 space-y-1.5 text-sm">
+          <div className="flex justify-between"><span className="text-ink-600">เบี้ยเลี้ยง{form.tripType === 'overnight' ? ` (${form.days} วัน × ${rate.perDiem}฿)` : ` (${form.offsiteHours}ชม.)`}</span><span className="font-medium">{fmtMoney(c.perDiemTotal)}</span></div>
+          {c.lodging > 0 && <div className="flex justify-between"><span className="text-ink-600">ค่าที่พัก</span><span className="font-medium">{fmtMoney(c.lodging)}</span></div>}
+          {c.carCost > 0 && <div className="flex justify-between"><span className="text-ink-600">ค่ารถส่วนตัว ({form.carKm} กม.)</span><span className="font-medium">{fmtMoney(c.carCost)}</span></div>}
+          {c.transport > 0 && <div className="flex justify-between"><span className="text-ink-600">ค่าเดินทางอื่น</span><span className="font-medium">{fmtMoney(c.transport)}</span></div>}
+          {c.other > 0 && <div className="flex justify-between"><span className="text-ink-600">อื่นๆ</span><span className="font-medium">{fmtMoney(c.other)}</span></div>}
+          <div className="flex justify-between pt-2 border-t border-ink-200 text-base"><span className="font-semibold text-ink-800">รวมทั้งสิ้น</span><span className="font-display font-bold text-brand-700">{fmtMoney(c.total)} บาท</span></div>
+          {c.perDiemTotal > PER_DIEM_TAX_FREE_CAP * (form.days || 1) && form.tripType === 'overnight' && (
+            <p className="text-xs text-gold-600">หมายเหตุ: เบี้ยเลี้ยงเกิน {PER_DIEM_TAX_FREE_CAP}฿/วัน ส่วนเกินต้องมีหลักฐาน</p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">หมายเหตุ</label>
+          <Textarea rows={2} value={form.note || ''} onChange={(e) => setForm({ ...form, note: e.target.value })} disabled={readOnly} />
+        </div>
+
+        {/* สถานะ (ถ้าอนุมัติแล้ว) */}
+        {editing && editing.status !== 'pending' && (
+          <div className="text-sm text-ink-500">
+            สถานะ: <span className="font-medium">{editing.status === 'approved' ? 'อนุมัติแล้ว' : editing.status === 'paid' ? 'จ่ายแล้ว' : 'ปฏิเสธ'}</span>
+            {editing.approvedBy ? ` โดย ${editing.approvedBy}` : ''}
+          </div>
+        )}
+
+        {/* แนบสลิปโอนเงิน — แสดงเมื่ออนุมัติแล้ว/จ่ายแล้ว */}
+        {editing && (form.status === 'approved' || form.status === 'paid') && (
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+            <h4 className="font-medium text-ink-800 mb-2 flex items-center gap-2">
+              <Icon name="receipt" className="w-4 h-4 text-emerald-600" /> สลิปการโอนเงิน
+            </h4>
+            {form.slipData ? (
+              <div className="space-y-2">
+                {form.slipData.startsWith('data:image') ? (
+                  <img src={form.slipData} alt="สลิป" className="max-h-64 rounded-lg border border-ink-200" />
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-ink-600">
+                    <Icon name="file" className="w-4 h-4" /> {form.slipName || 'สลิป.pdf'}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => {
+                    const a = document.createElement('a'); a.href = form.slipData;
+                    a.download = form.slipName || 'slip'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  }} className="text-xs px-3 py-1.5 rounded-lg border border-ink-200 hover:bg-white text-ink-600">ดาวน์โหลด</button>
+                  {canApproveAll && (
+                    <button type="button" onClick={() => setForm({ ...form, slipData: '', slipName: '' })}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">ลบสลิป</button>
+                  )}
+                </div>
+              </div>
+            ) : canApproveAll ? (
+              <div>
+                <input type="file" accept="image/*,application/pdf" id="slip-upload" className="hidden" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 3 * 1024 * 1024) { alert('ไฟล์ใหญ่เกิน 3MB'); return; }
+                  const reader = new FileReader();
+                  reader.onload = () => setForm({ ...form, slipData: reader.result, slipName: file.name });
+                  reader.readAsDataURL(file);
+                }} />
+                <label htmlFor="slip-upload" className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-emerald-300 hover:bg-emerald-100 text-sm font-medium text-emerald-700">
+                  <Icon name="upload" className="w-4 h-4" /> แนบสลิปโอนเงิน (รูป/PDF)
+                </label>
+                <p className="text-xs text-ink-400 mt-1.5">รองรับรูปภาพหรือ PDF ขนาดไม่เกิน 3MB</p>
+              </div>
+            ) : (
+              <p className="text-sm text-ink-400">ยังไม่มีสลิปการโอนเงิน</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-ink-100">
+          <Button type="button" variant="secondary" onClick={onClose}>ปิด</Button>
+          {(!readOnly || canApproveAll) && <Button type="submit" icon={editing ? 'check' : 'plus'}>{editing ? 'บันทึก' : 'สร้างใบเบิก'}</Button>}
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   POLICIES PAGE — ระเบียบบริษัท (อัปโหลด PDF ให้ดาวน์โหลด/ดู)
+═══════════════════════════════════════════════════════════ */
+const PoliciesPage = () => {
+  const { settings, setSettings, user, addToast } = useApp();
+  const [tab, setTab] = useState('news');     // news | docs
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  const [pendingFile, setPendingFile] = useState(null);
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('ระเบียบทั่วไป');
+
+  // ── ข่าวสาร/ประกาศ ──
+  const [openNews, setOpenNews] = useState(false);
+  const [editNews, setEditNews] = useState(null);
+
+  const canManage = user.role === 'admin' || user.role === 'hr';
+
+  // เก็บใน settings.policies (เอกสาร PDF) + settings.announcements (ข่าวสาร)
+  const policies = (settings && settings.policies) || [];
+  const announcements = (settings && settings.announcements) || [];
+
+  const saveAnnouncements = async (list) => {
+    const newSettings = { ...settings, announcements: list };
+    setSettings(newSettings);
+    if (api.enabled()) {
+      try { await api.post('saveSettings', { data: newSettings }); }
+      catch (err) { addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message); }
+    }
+  };
+  const saveNews = (news) => {
+    let list;
+    if (announcements.some(a => a.id === news.id)) list = announcements.map(a => a.id === news.id ? news : a);
+    else list = [news, ...announcements];
+    saveAnnouncements(list);
+    addToast('success', editNews ? 'แก้ไขประกาศเรียบร้อย' : 'เผยแพร่ประกาศเรียบร้อย');
+    setOpenNews(false); setEditNews(null);
+  };
+  const deleteNews = (id) => {
+    if (!confirm('ลบประกาศนี้?')) return;
+    saveAnnouncements(announcements.filter(a => a.id !== id));
+    addToast('success', 'ลบเรียบร้อย');
+  };
+
+  const savePolicies = async (list) => {
+    const newSettings = { ...settings, policies: list };
+    setSettings(newSettings);
+    if (api.enabled()) {
+      try { await api.post('saveSettings', { data: newSettings }); }
+      catch (err) { addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message); }
+    }
+  };
+
+  const onPickFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') { addToast('error', 'รองรับเฉพาะไฟล์ PDF'); return; }
+    if (file.size > 4 * 1024 * 1024) { addToast('error', 'ไฟล์ใหญ่เกิน 4MB กรุณาบีบอัดก่อน'); return; }
+    setPendingFile(file);
+    if (!title) setTitle(file.name.replace(/\.pdf$/i, ''));
+  };
+
+  const doUpload = async () => {
+    if (!pendingFile) { addToast('error', 'กรุณาเลือกไฟล์ PDF'); return; }
+    if (!title.trim()) { addToast('error', 'กรุณาตั้งชื่อเอกสาร'); return; }
+    setUploading(true);
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsDataURL(pendingFile);
+      });
+      const newDoc = {
+        id: `POL${Date.now()}`,
+        title: title.trim(),
+        category,
+        fileName: pendingFile.name,
+        fileData: base64,           // data:application/pdf;base64,...
+        size: pendingFile.size,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: user.name || user.username,
+      };
+      await savePolicies([...policies, newDoc]);
+      addToast('success', 'อัปโหลดเอกสารเรียบร้อย');
+      setPendingFile(null); setTitle(''); setCategory('ระเบียบทั่วไป');
+      if (fileRef.current) fileRef.current.value = '';
+    } catch (err) {
+      addToast('error', 'อัปโหลดไม่สำเร็จ: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const deleteDoc = (id) => {
+    if (!confirm('ลบเอกสารนี้?')) return;
+    savePolicies(policies.filter(p => p.id !== id));
+    addToast('success', 'ลบเรียบร้อย');
+  };
+
+  const downloadDoc = (doc) => {
+    const a = document.createElement('a');
+    a.href = doc.fileData;
+    a.download = doc.fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
+  const viewDoc = (doc) => {
+    // เปิดในแท็บใหม่
+    const win = window.open();
+    if (win) win.document.write(`<iframe src="${doc.fileData}" style="width:100%;height:100vh;border:none"></iframe>`);
+  };
+
+  const fmtSize = (b) => b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`;
+  const fmtDate = (iso) => { try { const d = new Date(iso); return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}`; } catch { return ''; } };
+
+  // จัดกลุ่มตามหมวด
+  const categories = [...new Set(policies.map(p => p.category || 'อื่นๆ'))];
+
+  return (
+    <div className="p-8 space-y-6 animate-fade-up">
+      <Topbar title="ระเบียบบริษัท" subtitle="ประกาศข่าวสาร เอกสารระเบียบ และข้อบังคับ"
+        action={canManage && tab === 'news' && <Button icon="plus" onClick={() => { setEditNews(null); setOpenNews(true); }}>เขียนประกาศ</Button>}
+      />
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-ink-100 p-1 rounded-xl w-fit">
+        {[['news','ประกาศข่าวสาร'],['docs','เอกสารระเบียบ']].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={cls('px-4 py-2 rounded-lg text-sm font-medium transition-colors', tab === id ? 'bg-white text-brand-700 shadow-soft' : 'text-ink-600 hover:text-ink-900')}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── แท็บ ประกาศข่าวสาร ── */}
+      {tab === 'news' && (
+        announcements.length === 0 ? (
+          <Empty icon="bell" title="ยังไม่มีประกาศ" desc={canManage ? 'คลิก "เขียนประกาศ" เพื่อเผยแพร่ข่าวสาร' : 'ยังไม่มีประกาศจากบริษัท'} />
+        ) : (
+          <div className="space-y-4">
+            {announcements.map(news => {
+              const typeColor = { 'ทั่วไป': 'flow', 'สำคัญ': 'gold', 'ด่วน': 'red', 'กิจกรรม': 'emerald' }[news.type] || 'flow';
+              return (
+                <Card key={news.id} className={cls('p-5', news.pinned && 'ring-2 ring-gold-200')}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {news.pinned && <span className="text-gold-500" title="ปักหมุด">📌</span>}
+                      <span className={cls('text-xs font-medium px-2 py-0.5 rounded-lg', `bg-${typeColor}-50 text-${typeColor}-700`)}>{news.type || 'ทั่วไป'}</span>
+                      <h3 className="font-display font-semibold text-ink-900">{news.title}</h3>
+                    </div>
+                    {canManage && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => { setEditNews(news); setOpenNews(true); }} className="p-1.5 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700"><Icon name="edit" className="w-4 h-4" /></button>
+                        <button onClick={() => deleteNews(news.id)} className="p-1.5 rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600"><Icon name="trash" className="w-4 h-4" /></button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-sm text-ink-700 mt-2 announcement-body" dangerouslySetInnerHTML={{ __html: news.body || '' }} />
+                  {news.image && <img src={news.image} alt="" className="mt-3 max-h-72 rounded-lg border border-ink-100" />}
+                  <div className="text-xs text-ink-400 mt-3 flex items-center gap-2">
+                    <Icon name="clock" className="w-3.5 h-3.5" />
+                    {(() => { try { const d = new Date(news.createdAt); return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}`; } catch { return ''; } })()}
+                    {news.author ? ` · โดย ${news.author}` : ''}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* ── แท็บ เอกสารระเบียบ ── */}
+      {tab === 'docs' && <>
+      {/* อัปโหลด (เฉพาะ admin/hr) */}
+      {canManage && (
+        <Card className="p-5">
+          <h3 className="font-display font-semibold text-ink-900 mb-3 flex items-center gap-2">
+            <Icon name="upload" className="w-4 h-4 text-brand-600" /> อัปโหลดเอกสารใหม่
+          </h3>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ชื่อเอกสาร</label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="เช่น ระเบียบการลา ปี 2569" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">หมวดหมู่</label>
+              <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="ระเบียบทั่วไป">ระเบียบทั่วไป</option>
+                <option value="การลา/ขาด/สาย">การลา/ขาด/สาย</option>
+                <option value="เบี้ยเลี้ยง/ค่าใช้จ่าย">เบี้ยเลี้ยง/ค่าใช้จ่าย</option>
+                <option value="ความปลอดภัย">ความปลอดภัย</option>
+                <option value="ประกาศ">ประกาศ</option>
+                <option value="อื่นๆ">อื่นๆ</option>
+              </Select>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <input ref={fileRef} type="file" accept="application/pdf" onChange={onPickFile} className="hidden" id="policy-file" />
+            <label htmlFor="policy-file" className="cursor-pointer px-4 py-2 rounded-xl border border-ink-200 hover:border-brand-400 hover:bg-brand-50 text-sm font-medium text-ink-700 flex items-center gap-2">
+              <Icon name="file" className="w-4 h-4" /> {pendingFile ? pendingFile.name : 'เลือกไฟล์ PDF'}
+            </label>
+            {pendingFile && <span className="text-xs text-ink-500">{fmtSize(pendingFile.size)}</span>}
+            <Button icon="upload" onClick={doUpload} disabled={uploading || !pendingFile} className="ml-auto">
+              {uploading ? 'กำลังอัปโหลด...' : 'อัปโหลด'}
+            </Button>
+          </div>
+          <p className="text-xs text-ink-400 mt-2">รองรับ PDF ขนาดไม่เกิน 4MB</p>
+        </Card>
+      )}
+
+      {/* รายการเอกสาร */}
+      {policies.length === 0 ? (
+        <Empty icon="book" title="ยังไม่มีเอกสารระเบียบ" desc={canManage ? 'อัปโหลดเอกสาร PDF ด้านบนเพื่อเริ่มต้น' : 'ยังไม่มีเอกสารให้ดาวน์โหลด'} />
+      ) : (
+        <div className="space-y-5">
+          {categories.map(cat => (
+            <div key={cat}>
+              <h3 className="text-sm font-semibold text-ink-500 mb-2">{cat}</h3>
+              <div className="grid md:grid-cols-2 gap-3">
+                {policies.filter(p => (p.category || 'อื่นๆ') === cat).map(doc => (
+                  <Card key={doc.id} className="p-4 flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                      <Icon name="file" className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-ink-900 truncate">{doc.title}</div>
+                      <div className="text-xs text-ink-400">{fmtSize(doc.size)} · {fmtDate(doc.uploadedAt)}</div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => viewDoc(doc)} className="p-2 rounded-lg text-ink-500 hover:bg-flow-50 hover:text-flow-700" title="ดู"><Icon name="eye" className="w-4 h-4" /></button>
+                      <button onClick={() => downloadDoc(doc)} className="p-2 rounded-lg text-ink-500 hover:bg-brand-50 hover:text-brand-700" title="ดาวน์โหลด"><Icon name="download" className="w-4 h-4" /></button>
+                      {canManage && <button onClick={() => deleteDoc(doc.id)} className="p-2 rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600" title="ลบ"><Icon name="trash" className="w-4 h-4" /></button>}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      </>}
+
+      {openNews && <AnnouncementModal open={openNews} onClose={() => { setOpenNews(false); setEditNews(null); }} editing={editNews} onSave={saveNews} author={user.name || user.username} />}
+    </div>
+  );
+};
+
+/* ───────────── ANNOUNCEMENT MODAL — เขียน/แก้ประกาศข่าวสาร ───────────── */
+const AnnouncementModal = ({ open, onClose, editing, onSave, author }) => {
+  const [form, setForm] = useState({});
+
+  useEffect(() => {
+    if (editing) setForm(JSON.parse(JSON.stringify(editing)));
+    else setForm({ id: '', title: '', body: '', type: 'ทั่วไป', pinned: false, image: '', createdAt: new Date().toISOString(), author });
+  }, [editing, open, author]);
+
+  if (!open) return null;
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.title.trim()) return alert('กรุณากรอกหัวข้อ');
+    // ดึงข้อความล้วนเพื่อเช็คว่าว่างไหม (body เป็น HTML)
+    const plain = (form.body || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, '').trim();
+    if (!plain) return alert('กรุณากรอกเนื้อหา');
+    onSave({ ...form, id: form.id || `NEWS${Date.now()}` });
+  };
+
+  const pickImage = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('รองรับเฉพาะรูปภาพ'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('รูปใหญ่เกิน 10MB'); return; }
+    const reader = new FileReader();
+    reader.onload = () => setForm(f => ({ ...f, image: reader.result }));
+    reader.readAsDataURL(file);
+  };
+
+  // rich text toolbar — ใช้ execCommand บน contentEditable
+  const editorRef = useRef(null);
+  const exec = (cmd, val) => { document.execCommand(cmd, false, val); editorRef.current?.focus(); syncBody(); };
+  const syncBody = () => { if (editorRef.current) setForm(f => ({ ...f, body: editorRef.current.innerHTML })); };
+  // ตั้งค่าเนื้อหาเริ่มต้นใน editor (ครั้งแรกที่เปิด)
+  useEffect(() => {
+    if (open && editorRef.current) {
+      editorRef.current.innerHTML = (editing && editing.body) || '';
+    }
+  }, [open, editing]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={editing ? 'แก้ไขประกาศ' : 'เขียนประกาศใหม่'} size="lg">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="grid md:grid-cols-3 gap-3">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">หัวข้อประกาศ</label>
+            <Input value={form.title || ''} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="เช่น วันหยุดสงกรานต์ 2569" required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ประเภท</label>
+            <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              <option value="ทั่วไป">ทั่วไป</option>
+              <option value="สำคัญ">สำคัญ</option>
+              <option value="ด่วน">ด่วน</option>
+              <option value="กิจกรรม">กิจกรรม</option>
+            </Select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">เนื้อหา</label>
+          {/* Toolbar จัดรูปแบบ */}
+          <div className="flex flex-wrap items-center gap-1 mb-2 p-1.5 bg-ink-50 rounded-lg border border-ink-200">
+            <button type="button" onClick={() => exec('bold')} className="w-8 h-8 rounded hover:bg-white font-bold text-ink-700" title="ตัวหนา">B</button>
+            <button type="button" onClick={() => exec('italic')} className="w-8 h-8 rounded hover:bg-white italic text-ink-700" title="ตัวเอียง">I</button>
+            <button type="button" onClick={() => exec('underline')} className="w-8 h-8 rounded hover:bg-white underline text-ink-700" title="ขีดเส้นใต้">U</button>
+            <div className="w-px h-6 bg-ink-200 mx-1" />
+            {/* ขนาดตัวอักษร */}
+            <select onChange={(e) => { exec('fontSize', e.target.value); e.target.value=''; }} defaultValue="" className="h-8 px-2 rounded border border-ink-200 text-sm text-ink-700 bg-white" title="ขนาดตัวอักษร">
+              <option value="" disabled>ขนาด</option>
+              <option value="1">เล็กมาก</option>
+              <option value="2">เล็ก</option>
+              <option value="3">ปกติ</option>
+              <option value="5">ใหญ่</option>
+              <option value="6">ใหญ่มาก</option>
+              <option value="7">ใหญ่ที่สุด</option>
+            </select>
+            <div className="w-px h-6 bg-ink-200 mx-1" />
+            {/* สี */}
+            <input type="color" onChange={(e) => exec('foreColor', e.target.value)} className="w-8 h-8 rounded cursor-pointer border border-ink-200" title="สีตัวอักษร" defaultValue="#1E293B" />
+            <button type="button" onClick={() => exec('insertUnorderedList')} className="w-8 h-8 rounded hover:bg-white text-ink-700" title="รายการ">•</button>
+            <div className="w-px h-6 bg-ink-200 mx-1" />
+            <button type="button" onClick={() => exec('removeFormat')} className="px-2 h-8 rounded hover:bg-white text-xs text-ink-500" title="ล้างรูปแบบ">ล้าง</button>
+          </div>
+          {/* พื้นที่พิมพ์ */}
+          <div
+            ref={editorRef}
+            contentEditable
+            onInput={syncBody}
+            className="min-h-[140px] max-h-[400px] overflow-y-auto px-3 py-2 rounded-xl border border-ink-200 focus:border-flow-400 focus:ring-2 focus:ring-flow-100 outline-none text-sm text-ink-800 leading-relaxed"
+            style={{ whiteSpace: 'pre-wrap' }}
+            data-placeholder="รายละเอียดประกาศ..."
+          />
+          <p className="text-xs text-ink-400 mt-1">เลือกข้อความแล้วกดปุ่มด้านบนเพื่อจัดรูปแบบ (ตัวหนา ขนาด สี)</p>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={!!form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} className="rounded border-ink-300 text-gold-500" />
+            📌 ปักหมุดไว้บนสุด
+          </label>
+          <div>
+            <input type="file" accept="image/*" id="news-image" className="hidden" onChange={pickImage} />
+            <label htmlFor="news-image" className="cursor-pointer text-sm px-3 py-1.5 rounded-lg border border-ink-200 hover:bg-ink-50 inline-flex items-center gap-2">
+              <Icon name="file" className="w-4 h-4" /> {form.image ? 'เปลี่ยนรูป' : 'แนบรูปภาพ'}
+            </label>
+          </div>
+          {form.image && (
+            <div className="flex items-center gap-2">
+              <img src={form.image} alt="" className="h-12 rounded border border-ink-200" />
+              <button type="button" onClick={() => setForm({ ...form, image: '' })} className="text-xs text-red-500 hover:underline">ลบรูป</button>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 pt-3 border-t border-ink-100">
+          <Button type="button" variant="secondary" onClick={onClose}>ยกเลิก</Button>
+          <Button type="submit" icon={editing ? 'check' : 'plus'}>{editing ? 'บันทึก' : 'เผยแพร่'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
 const ReportsPage = () => {
   const { employees, attendance, leaves, leaveTypes, branches } = useApp();
   const [month, setMonth] = useState(new Date().toISOString().slice(0,7));
@@ -8793,6 +10092,8 @@ const App = () => {
           {page === 'assets'     && <AssetsPage />}
           {page === 'payroll'    && <PayrollPage />}
           {page === 'kpi'        && <KpiPage />}
+          {page === 'expenses'   && <ExpensesPage />}
+          {page === 'policies'   && <PoliciesPage />}
           {page === 'reports'    && <ReportsPage />}
           {page === 'branches'   && <BranchesPage />}
           {page === 'settings'   && <SettingsPage />}
