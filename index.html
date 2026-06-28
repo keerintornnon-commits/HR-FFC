@@ -5089,7 +5089,7 @@ const LeaveRequestModal = ({ open, onClose, onSave, employees, leaves, leaveType
                 disabled={lockToSelf}
                 required
               >
-                {selectable.map(e => (
+                {selectable.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true})).map(e => (
                   <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.id})</option>
                 ))}
               </Select>
