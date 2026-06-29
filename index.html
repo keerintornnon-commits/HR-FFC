@@ -603,7 +603,37 @@ const sb = {
     const txt = await res.text();
     return txt ? JSON.parse(txt) : null;
   },
-  select: (table, query = '') => sb.request('GET', `${table}?select=*${query}`),
+  // ดึงครบทุกแถว — แก้ปัญหา PostgREST limit 1000 แถว (วนขอทีละ 1000 จนหมด)
+  async select(table, query = '') {
+    const c = getSupabaseConfig();
+    const PAGE = 1000;
+    let from = 0;
+    let all = [];
+    while (true) {
+      const to = from + PAGE - 1;
+      const res = await fetch(`${c.url}/rest/v1/${table}?select=*${query}`, {
+        headers: {
+          'apikey': c.anonKey,
+          'Authorization': `Bearer ${c.anonKey}`,
+          'Range-Unit': 'items',
+          'Range': `${from}-${to}`,
+        },
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Supabase ${res.status}: ${txt.slice(0, 200)}`);
+      }
+      const txt = await res.text();
+      const chunk = txt ? JSON.parse(txt) : [];
+      all = all.concat(chunk);
+      // ถ้าได้น้อยกว่า 1 หน้า = หมดแล้ว
+      if (chunk.length < PAGE) break;
+      from += PAGE;
+      // กันลูปไม่รู้จบ (สูงสุด 50,000 แถว)
+      if (from > 50000) break;
+    }
+    return all;
+  },
   upsert: (table, rows) => sb.request('POST', table, rows),
   remove: (table, col, val) => sb.request('DELETE', `${table}?${col}=eq.${encodeURIComponent(val)}`),
 };
