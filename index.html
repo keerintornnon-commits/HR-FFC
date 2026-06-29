@@ -571,7 +571,13 @@ const fromDb = (table, row) => {
   const out = {};
   Object.entries(row || {}).forEach(([k, v]) => {
     if (k === 'created_at' || k === 'updated_at') return;  // ข้าม timestamp ภายใน
-    out[rev[k] || k] = v;
+    // normalize วันที่ → YYYY-MM-DD เสมอ (กัน DB คืน format มีเวลา/timezone ต่อท้าย)
+    if (DATE_COLS.has(k) && v != null && v !== '') {
+      const s = String(v).slice(0, 10);
+      out[rev[k] || k] = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : v;
+    } else {
+      out[rev[k] || k] = v;
+    }
   });
   return out;
 };
@@ -805,8 +811,16 @@ const api = {
       case 'saveKpiRecord': return sb.upsert('kpi_records', toDb('kpi_records', d));
 
       // ── บันทึกเป็นชุด ──
-      case 'saveAttendanceBatch':
-        return sb.upsert('attendance', (d || []).map(r => toDb('attendance', r)));
+      case 'saveAttendanceBatch': {
+        const all = (d || []).map(r => toDb('attendance', r));
+        // แบ่งส่งทีละ 500 แถว กัน payload ใหญ่เกิน / timeout
+        const CHUNK = 500;
+        let last = null;
+        for (let i = 0; i < all.length; i += CHUNK) {
+          last = await sb.upsert('attendance', all.slice(i, i + CHUNK));
+        }
+        return last;
+      }
       case 'saveKpiCriteria':
         // แทนที่ทั้งตาราง: ลบเก่า + ใส่ใหม่
         await sb.request('DELETE', 'kpi_criteria?id=neq.__none__');
@@ -3758,7 +3772,7 @@ const AttendancePage = () => {
 
   const filtered = useMemo(() => {
     return attendance.filter(a => {
-      if (a.date !== filterDate) return false;
+      if (toYMD(a.date) !== filterDate) return false;
       const emp = employees.find(e => e.id === a.employeeId);
       if (!emp) return false;
       if (lockedBranch && emp.branchId !== lockedBranch) return false;
@@ -3772,7 +3786,7 @@ const AttendancePage = () => {
   }, [attendance, employees, filterDate, filterBranch, search, user, lockedBranch]);
 
   const stats = useMemo(() => {
-    const dayRecs = attendance.filter(a => a.date === filterDate);
+    const dayRecs = attendance.filter(a => toYMD(a.date) === filterDate);
     return {
       total: dayRecs.length,
       late:  dayRecs.filter(a => a.status === 'late').length,
@@ -3929,10 +3943,15 @@ const AttendancePage = () => {
         onClose={() => setShowUpload(false)}
         onImport={(records) => {
           setAttendance([...attendance, ...records]);
-          addToast('success', `นำเข้าข้อมูล ${records.length} รายการสำเร็จ`);
           if (api.enabled()) {
             api.post('saveAttendanceBatch', { data: records })
-              .catch(err => addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message));
+              .then(() => addToast('success', `นำเข้าและบันทึก ${records.length} รายการสำเร็จ`))
+              .catch(err => {
+                console.error('saveAttendanceBatch error:', err);
+                addToast('error', 'บันทึกลงฐานข้อมูลไม่สำเร็จ: ' + (err.message || err));
+              });
+          } else {
+            addToast('success', `นำเข้าข้อมูล ${records.length} รายการ (โหมดออฟไลน์)`);
           }
           setShowUpload(false);
         }}
@@ -4262,7 +4281,7 @@ const UploadAttendanceModal = ({ open, onClose, onImport, employees, settings, l
           }
 
           records.push({
-            id: `ATT${Date.now()}-${idx}`,
+            id: `ATT_${empId}_${normDate}`,   // id เสถียร: กันซ้ำ + อัปโหลดซ้ำทับของเดิม
             employeeId: empId,
             date: normDate,
             checkIn,
