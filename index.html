@@ -571,10 +571,9 @@ const fromDb = (table, row) => {
   const out = {};
   Object.entries(row || {}).forEach(([k, v]) => {
     if (k === 'created_at' || k === 'updated_at') return;  // ข้าม timestamp ภายใน
-    // normalize วันที่ → YYYY-MM-DD เสมอ (กัน DB คืน format มีเวลา/timezone ต่อท้าย)
+    // normalize วันที่ → YYYY-MM-DD เสมอ (กัน DB คืน format มีเวลา/timezone/ไม่ zero-pad)
     if (DATE_COLS.has(k) && v != null && v !== '') {
-      const s = String(v).slice(0, 10);
-      out[rev[k] || k] = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : v;
+      out[rev[k] || k] = toYMD(v);
     } else {
       out[rev[k] || k] = v;
     }
@@ -1144,6 +1143,9 @@ const toYMD = (v) => {
   const s = String(v).trim();
   // ISO หรือ YYYY-MM-DD อยู่แล้ว → เอา 10 ตัวแรก
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // YYYY-M-D หรือ YYYY-MM-D (ไม่มี zero-pad) → เติม 0
+  const ymd = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (ymd) return `${ymd[1]}-${ymd[2].padStart(2,'0')}-${ymd[3].padStart(2,'0')}`;
   // ตัวเลขล้วน (Excel serial) — ไม่ควร parse ด้วย new Date ที่นี่ คืนค่าเดิม
   if (/^\d+(\.\d+)?$/.test(s)) return s;
   // ลอง parse เป็น Date
@@ -11583,6 +11585,12 @@ const App = () => {
       // 1) โหลดจาก cache ก่อน (แสดงทันที ไม่ต้องรอเน็ต)
       let hadCache = false;
       try {
+        // cache version — เปลี่ยนเลขนี้เมื่อโครงสร้างข้อมูลเปลี่ยน เพื่อล้าง cache เก่าที่ format ผิด
+        const CACHE_VER = 'v2-date-normalize';
+        if (localStorage.getItem('ffc_cache_ver') !== CACHE_VER) {
+          localStorage.removeItem('ffc_data_cache');
+          localStorage.setItem('ffc_cache_ver', CACHE_VER);
+        }
         const cached = localStorage.getItem('ffc_data_cache');
         if (cached) {
           applyData(JSON.parse(cached));
