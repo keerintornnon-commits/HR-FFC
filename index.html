@@ -498,6 +498,7 @@ const FIELD_MAP = {
     startDate: 'start_date', canApprove: 'can_approve', approvalScope: 'approval_scope',
     canPayroll: 'can_payroll', salaryType: 'salary_type', baseSalary: 'base_salary',
     specialAllowance: 'special_allowance', leaveQuotaOverride: 'leave_quota_override',
+    ssoAmount: 'sso_amount', gyosAmount: 'gyos_amount',
     bankName: 'bank_name', bankAccount: 'bank_account', bankAccountName: 'bank_account_name',
     nationalId: 'national_id', address: 'address',
   },
@@ -3374,6 +3375,7 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
     email: '', phone: '', startDate: new Date().toISOString().split('T')[0],
     status: 'active', canApprove: false, approvalScope: 'none', canPayroll: false,
     salaryType: 'monthly', baseSalary: '', specialAllowance: '',
+    ssoAmount: '', gyosAmount: '',
     bankName: '', bankAccount: '', bankAccountName: '',
     nationalId: '', address: '',
     leaveQuotaOverride: {}, photo: '',
@@ -3616,6 +3618,24 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
               เงินเดือน/วัน = {fmtMoney(Number(form.baseSalary) / 30)} บาท (ฐาน ÷ 30)
             </div>
           )}
+
+          {/* รายการหักประจำ — ดึงไปใช้ตอนทำเงินเดือนอัตโนมัติ */}
+          <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-flow-100">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">หักประกันสังคม (ต่อเดือน)</label>
+              <Input type="number" min={0} step="0.01" value={form.ssoAmount ?? ''}
+                onChange={(e) => setForm({ ...form, ssoAmount: e.target.value })}
+                placeholder="เช่น 750" />
+              <p className="text-[11px] text-ink-400 mt-1">ปกติ 5% ของฐาน (สูงสุด 750)</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">หัก กยศ. (ต่อเดือน)</label>
+              <Input type="number" min={0} step="0.01" value={form.gyosAmount ?? ''}
+                onChange={(e) => setForm({ ...form, gyosAmount: e.target.value })}
+                placeholder="เช่น 1500" />
+              <p className="text-[11px] text-ink-400 mt-1">ยอดผ่อนชำระต่อเดือน</p>
+            </div>
+          </div>
         </div>
 
         {/* บัญชีธนาคาร (สำหรับโอนเงินเดือน) */}
@@ -7225,6 +7245,9 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
       baseSalary: r.baseSalary,
       otherEarn: r.special || '',
       absenceDeduct: Math.round((r.lateFine + r.leaveDeduct) * 100) / 100,
+      // ดึงรายการหักประจำจาก profile พนักงาน (ถ้ายังไม่กรอกในฟอร์ม)
+      sso: (f.sso !== '' && f.sso != null) ? f.sso : (selectedEmp.ssoAmount || ''),
+      gyos: (f.gyos !== '' && f.gyos != null) ? f.gyos : (selectedEmp.gyosAmount || ''),
       // เก็บรายละเอียดไว้แสดงในสลิป
       breakdown: {
         salaryType: r.salaryType, perDay: r.perDay, workedDays: r.workedDays,
@@ -7271,7 +7294,16 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
                 {(branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </Select>
             )}
-            <Select value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} disabled={!!editing} required>
+            <Select value={form.employeeId} onChange={(e) => {
+              const emp = employees.find(x => x.id === e.target.value);
+              setForm(f => ({
+                ...f,
+                employeeId: e.target.value,
+                // เติมรายการหักประจำจาก profile (เฉพาะตอนยังว่าง)
+                sso: (f.sso !== '' && f.sso != null) ? f.sso : (emp?.ssoAmount || ''),
+                gyos: (f.gyos !== '' && f.gyos != null) ? f.gyos : (emp?.gyosAmount || ''),
+              }));
+            }} disabled={!!editing} required>
               {employees
                 .filter(e => filterBranch === 'all' || e.branchId === filterBranch)
                 .slice()
