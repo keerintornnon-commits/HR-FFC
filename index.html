@@ -6535,12 +6535,12 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   }
 
   // ===== หักมาสาย =====
-  // คิดทุกวันที่มาสายจริง ไม่ว่าสถานะ late หรือ partial (มาทำงานสาย + ลาบางส่วน)
+  // นับเฉพาะวันที่สถานะ 'late' (มาทำงานเต็มวันแต่เข้าสาย)
+  // ไม่นับ partial (ลาครึ่งวัน — หักค่าลาแยกแล้ว) และ nocheckout (ลืมสแกนออก — ไม่ใช่ความผิดเรื่องสาย)
   let lateFine = 0;
   const lateDetails = [];
   monthAtt.forEach(a => {
-    // เช็คจากเวลาเข้างานจริง (ครอบคลุม late, partial, nocheckout ที่เข้าสาย)
-    if (['late', 'partial', 'nocheckout'].includes(a.status) && a.checkIn) {
+    if (a.status === 'late' && a.checkIn) {
       const lm = lateMinutesOf(a.checkIn);
       const fine = calcLateFine(a.checkIn);   // ส่งเวลาเข้างานตรงๆ เพื่อ map ช่วงให้แม่น
       if (fine > 0) { lateFine += fine; lateDetails.push({ date: toYMD(a.date), minutes: lm, fine }); }
