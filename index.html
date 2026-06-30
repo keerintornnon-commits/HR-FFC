@@ -3839,7 +3839,16 @@ const AttendancePage = () => {
   }, [attendance, employees, filterDate, filterBranch, search, user, lockedBranch]);
 
   const stats = useMemo(() => {
-    const dayRecs = attendance.filter(a => toYMD(a.date) === filterDate);
+    // กรองให้ตรงกับตาราง: วันที่ + สาขา + ขอบเขตสิทธิ์
+    const empById = new Map(employees.map(e => [e.id, e]));
+    const dayRecs = attendance.filter(a => {
+      if (toYMD(a.date) !== filterDate) return false;
+      const emp = empById.get(a.employeeId);
+      if (!emp) return false;
+      if (lockedBranch && emp.branchId !== lockedBranch) return false;
+      if (filterBranch !== 'all' && emp.branchId !== filterBranch) return false;
+      return true;
+    });
     return {
       total: dayRecs.length,
       late:  dayRecs.filter(a => a.status === 'late').length,
@@ -3849,7 +3858,7 @@ const AttendancePage = () => {
       absent: dayRecs.filter(a => a.status === 'absent').length,
       stillIn: dayRecs.filter(a => !a.checkOut && (a.status === 'ontime' || a.status === 'late')).length,
     };
-  }, [attendance, filterDate]);
+  }, [attendance, employees, filterDate, filterBranch, lockedBranch]);
 
   return (
     <div className="p-8 space-y-6 animate-fade-up">
