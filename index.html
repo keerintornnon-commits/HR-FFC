@@ -838,6 +838,8 @@ const api = {
       case 'saveLeave':     return sb.upsert('leaves',     toDb('leaves', d));
       case 'saveAsset':     return sb.upsert('assets',     toDb('assets', d));
       case 'savePayroll':   return sb.upsert('payroll',    toDb('payroll', d));
+      case 'savePayrollBatch':
+        return sb.upsert('payroll', (d || []).map(r => toDb('payroll', r)));
       case 'saveKpiRecord': return sb.upsert('kpi_records', toDb('kpi_records', d));
 
       // ── บันทึกเป็นชุด ──
@@ -6654,6 +6656,201 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   };
 };
 
+/* ===== BATCH PAYROLL MODAL — คำนวณเงินเดือนหลายคนพร้อมกัน ===== */
+const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, leaves, leaveTypes, settings, existingPayroll, lockedBranch, onSaved }) => {
+  const [salaryType, setSalaryType] = useState('monthly');   // monthly | daily
+  const [branchId, setBranchId] = useState(lockedBranch || 'all');
+  // ช่วงวันที่ — ดีฟอลต์เดือนปัจจุบัน
+  const todayObj = new Date();
+  const curMonth = todayObj.toISOString().slice(0, 7);
+  const lastDayOfMonth = new Date(todayObj.getFullYear(), todayObj.getMonth() + 1, 0).getDate();
+  const [fromDate, setFromDate] = useState(`${curMonth}-01`);
+  const [toDate, setToDate] = useState(`${curMonth}-${String(lastDayOfMonth).padStart(2, '0')}`);
+  const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [computing, setComputing] = useState(false);
+
+  useEffect(() => {
+    if (lockedBranch) setBranchId(lockedBranch);
+  }, [lockedBranch, open]);
+
+  // ปุ่มลัดเลือกช่วงเร็ว
+  const quickRange = (mode) => {
+    const [y, m] = fromDate.split('-').map(Number);
+    const base = `${y}-${String(m).padStart(2, '0')}`;
+    const last = new Date(y, m, 0).getDate();
+    if (mode === 'full') { setFromDate(`${base}-01`); setToDate(`${base}-${String(last).padStart(2,'0')}`); }
+    if (mode === 'first') { setFromDate(`${base}-01`); setToDate(`${base}-15`); }
+    if (mode === 'second') { setFromDate(`${base}-16`); setToDate(`${base}-${String(last).padStart(2,'0')}`); }
+  };
+
+  const range = useMemo(() => ({ from: fromDate, to: toDate }), [fromDate, toDate]);
+
+  // พนักงานที่ตรงเงื่อนไข (ประเภท + สาขา)
+  const eligibleEmps = useMemo(() => {
+    return employees.filter(e => {
+      if (e.status === 'inactive' || e.status === 'ลาออก') return false;
+      if ((e.salaryType || 'monthly') !== salaryType) return false;
+      if (branchId !== 'all' && e.branchId !== branchId) return false;
+      return true;
+    }).sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  }, [employees, salaryType, branchId]);
+
+  // default เลือกทุกคน
+  useEffect(() => {
+    setSelectedIds(eligibleEmps.map(e => e.id));
+  }, [eligibleEmps]);
+
+  const toggle = (id) => setSelectedIds(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const toggleAll = () => setSelectedIds(s => s.length === eligibleEmps.length ? [] : eligibleEmps.map(e => e.id));
+
+  const runBatch = async () => {
+    if (selectedIds.length === 0) { alert('กรุณาเลือกพนักงานอย่างน้อย 1 คน'); return; }
+    if (!fromDate || !toDate || fromDate > toDate) { alert('กรุณาเลือกช่วงวันที่ให้ถูกต้อง'); return; }
+    setComputing(true);
+    try {
+      const records = selectedIds.map(empId => {
+        const emp = employees.find(e => e.id === empId);
+        const r = computeAutoPayroll(emp, range, attendance, leaves, leaveTypes, settings);
+        // หา record เดิม (ถ้ามี) เพื่อคงค่าที่กรอกมือ
+        const existId = `PAY_${empId}_${range.from}`;
+        const old = existingPayroll.find(x => x.id === existId);
+        return {
+          id: existId,
+          employeeId: empId,
+          period: range.from.slice(0, 7),
+          periodFrom: range.from,
+          periodTo: range.to,
+          payDate: payDate,
+          baseSalary: r.baseSalary,
+          overtime: old?.overtime ?? '',
+          transport: old?.transport ?? '',
+          bonus: old?.bonus ?? '',
+          otherEarn: old?.otherEarn ?? (r.special || ''),
+          absenceDeduct: Math.round((r.lateFine + r.leaveDeduct) * 100) / 100,
+          sso: old?.sso ?? (emp.ssoAmount || ''),
+          gyos: old?.gyos ?? (emp.gyosAmount || ''),
+          tax: old?.tax ?? '',
+          otherDeduct: old?.otherDeduct ?? '',
+          note: old?.note ?? '',
+          breakdown: {
+            salaryType: r.salaryType, perDay: r.perDay, workedDays: r.workedDays,
+            attendedDays: r.attendedDays, rangeDays: r.rangeDays,
+            lateFine: r.lateFine, lateDetails: r.lateDetails,
+            leaveDeduct: r.leaveDeduct, leaveDetails: r.leaveDetails,
+            fullLeaveDates: r.fullLeaveDates, absentDays: r.absentDays,
+          },
+        };
+      });
+      onSaved(records);
+    } catch (err) {
+      alert('คำนวณไม่สำเร็จ: ' + err.message);
+    } finally {
+      setComputing(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <Modal open onClose={onClose} title="คำนวณเงินเดือนหลายคน" size="lg">
+      <div className="space-y-4">
+        {/* ประเภทเงินเดือน */}
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">ประเภทเงินเดือน</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setSalaryType('monthly')}
+              className={cls('p-3 rounded-xl border text-left', salaryType === 'monthly' ? 'border-flow-400 bg-flow-50 ring-1 ring-flow-200' : 'border-ink-200')}>
+              <div className="font-medium text-sm">รายเดือน</div>
+              <div className="text-xs text-ink-500">จ่ายรอบเดียว/เดือน</div>
+            </button>
+            <button onClick={() => setSalaryType('daily')}
+              className={cls('p-3 rounded-xl border text-left', salaryType === 'daily' ? 'border-flow-400 bg-flow-50 ring-1 ring-flow-200' : 'border-ink-200')}>
+              <div className="font-medium text-sm">รายวัน</div>
+              <div className="text-xs text-ink-500">จ่าย 2 รอบ/เดือน</div>
+            </button>
+          </div>
+        </div>
+
+        {/* ช่วงวันที่ (เลือกเองได้) */}
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">รอบจ่ายเงิน (เลือกช่วงวันที่)</label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            <button onClick={() => quickRange('full')} className="px-3 py-1 rounded-lg border border-ink-200 text-xs hover:bg-ink-50">ทั้งเดือน</button>
+            <button onClick={() => quickRange('first')} className="px-3 py-1 rounded-lg border border-ink-200 text-xs hover:bg-ink-50">วันที่ 1-15</button>
+            <button onClick={() => quickRange('second')} className="px-3 py-1 rounded-lg border border-ink-200 text-xs hover:bg-ink-50">วันที่ 16-สิ้นเดือน</button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-ink-500 mb-1">ตั้งแต่วันที่</label>
+              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-500 mb-1">ถึงวันที่</label>
+              <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </div>
+          </div>
+          <div className="mt-2">
+            <label className="block text-xs text-ink-500 mb-1">วันที่จ่ายเงิน</label>
+            <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+          </div>
+        </div>
+
+        {/* สาขา */}
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+          <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={!!lockedBranch}>
+            {!lockedBranch && <option value="all">ทุกสาขา</option>}
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+        </div>
+
+        {/* รายชื่อพนักงาน */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-sm font-medium text-ink-700">
+              พนักงาน{salaryType === 'monthly' ? 'รายเดือน' : 'รายวัน'} ({eligibleEmps.length} คน)
+            </label>
+            {eligibleEmps.length > 0 && (
+              <button onClick={toggleAll} className="text-xs text-flow-600 hover:underline">
+                {selectedIds.length === eligibleEmps.length ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
+              </button>
+            )}
+          </div>
+          {eligibleEmps.length === 0 ? (
+            <div className="p-4 text-center text-sm text-ink-400 border border-ink-100 rounded-xl">
+              ไม่มีพนักงาน{salaryType === 'monthly' ? 'รายเดือน' : 'รายวัน'}ในสาขาที่เลือก
+            </div>
+          ) : (
+            <div className="max-h-56 overflow-y-auto border border-ink-100 rounded-xl divide-y divide-ink-50">
+              {eligibleEmps.map(e => (
+                <label key={e.id} className="flex items-center gap-3 px-3 py-2 hover:bg-ink-50/50 cursor-pointer">
+                  <input type="checkbox" checked={selectedIds.includes(e.id)} onChange={() => toggle(e.id)}
+                    className="w-4 h-4 rounded border-ink-300 text-flow-600" />
+                  <span className="text-sm text-ink-800 flex-1">{e.id} - {e.firstName} {e.lastName}</span>
+                  <span className="text-xs text-ink-400">{branches.find(b => b.id === e.branchId)?.name || ''}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-flow-50 border border-flow-100 rounded-xl p-3 text-sm flex items-center justify-between">
+          <span className="text-ink-600">จะคำนวณและบันทึก</span>
+          <span className="font-bold text-flow-700">{selectedIds.length} คน</span>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
+          <Button variant="secondary" onClick={onClose}>ยกเลิก</Button>
+          <Button icon="check" onClick={runBatch} disabled={computing || selectedIds.length === 0}>
+            {computing ? 'กำลังคำนวณ...' : `คำนวณ ${selectedIds.length} คน`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 const PayrollPage = () => {
   const { payroll, setPayroll, employees, branches, attendance, leaves, leaveTypes, settings, user, addToast, loadHistory, historyLoaded } = useApp();
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -6664,6 +6861,7 @@ const PayrollPage = () => {
   const [selected, setSelected] = useState([]);   // id ที่เลือกพิมพ์รวม
   const [showSummary, setShowSummary] = useState(false);  // modal export สรุป
   const [showBankFile, setShowBankFile] = useState(false);  // modal export ไฟล์โอนเงิน
+  const [showBatch, setShowBatch] = useState(false);  // modal คำนวณหลายคน
 
   const myEmp = employees.find(e => e.id === user.empId);
   const hasPayrollAccess = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
@@ -6746,6 +6944,7 @@ const PayrollPage = () => {
           <div className="flex gap-2">
             <Button variant="outline" icon="download" onClick={() => setShowSummary(true)}>Export สรุป</Button>
             <Button variant="outline" icon="building" onClick={() => setShowBankFile(true)}>ไฟล์โอนเงิน</Button>
+            <Button variant="outline" icon="users" onClick={() => setShowBatch(true)}>คำนวณหลายคน</Button>
             <Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มเงินเดือน</Button>
           </div>
         )}
@@ -6924,6 +7123,34 @@ const PayrollPage = () => {
         settings={settings}
         defaultMonth={month}
         lockedBranch={user.role === 'manager' ? user.branchId : null}
+      />
+
+      <BatchPayrollModal
+        open={showBatch}
+        onClose={() => setShowBatch(false)}
+        employees={employees}
+        branches={branches}
+        attendance={attendance}
+        leaves={leaves}
+        leaveTypes={leaveTypes}
+        settings={settings}
+        existingPayroll={payroll}
+        lockedBranch={user.role === 'manager' ? user.branchId : null}
+        onSaved={(records) => {
+          // รวมเข้า state + บันทึก batch
+          const merged = [...payroll];
+          records.forEach(r => {
+            const idx = merged.findIndex(x => x.id === r.id);
+            if (idx >= 0) merged[idx] = r; else merged.push(r);
+          });
+          setPayroll(merged);
+          if (api.enabled()) {
+            api.post('savePayrollBatch', { data: records })
+              .then(() => addToast('success', `บันทึกเงินเดือน ${records.length} คนเรียบร้อย`))
+              .catch(err => addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message));
+          }
+          setShowBatch(false);
+        }}
       />
     </div>
   );
