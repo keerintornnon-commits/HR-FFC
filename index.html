@@ -3791,6 +3791,7 @@ const AttendancePage = () => {
   const [search, setSearch] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showBlankForm, setShowBlankForm] = useState(false);
 
   // ผู้จัดการภาค (regional) — จำกัดให้เห็นเฉพาะภาคตัวเอง
   const myEmp = employees.find(e => e.id === user.empId);
@@ -3838,6 +3839,9 @@ const AttendancePage = () => {
         action={
           (user.role === 'admin' || user.role === 'hr' || user.role === 'manager' || isRegional) && (
             <div className="flex gap-2">
+              <Button variant="outline" icon="file" onClick={() => setShowBlankForm(true)}>
+                ฟอร์มเปล่า
+              </Button>
               <Button variant="outline" icon="download" onClick={() => setShowExport(true)}>
                 Export ประวัติ
               </Button>
@@ -4002,7 +4006,123 @@ const AttendancePage = () => {
         leaveTypes={leaveTypes}
         lockedBranch={lockedBranch}
       />
+
+      <BlankFormModal
+        open={showBlankForm}
+        onClose={() => setShowBlankForm(false)}
+        employees={employees}
+        branches={branches}
+        lockedBranch={lockedBranch}
+      />
     </div>
+  );
+};
+
+
+/* ===== BLANK FORM MODAL — สร้างฟอร์มเปล่าให้กรอกเวลาสแกนนิ้ว ===== */
+const BlankFormModal = ({ open, onClose, employees, branches, lockedBranch }) => {
+  const [branchId, setBranchId] = useState(lockedBranch || 'all');
+  const today = new Date().toISOString().slice(0, 10);
+  const [fromDate, setFromDate] = useState(today);
+  const [toDate, setToDate] = useState(today);
+
+  useEffect(() => {
+    if (lockedBranch) setBranchId(lockedBranch);
+  }, [lockedBranch, open]);
+
+  // นับจำนวนคน + วัน
+  const branchEmps = useMemo(() => {
+    let list = employees.filter(e => e.status !== 'inactive' && e.status !== 'ลาออก');
+    if (branchId !== 'all') list = list.filter(e => e.branchId === branchId);
+    return list.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  }, [employees, branchId]);
+
+  const dayList = useMemo(() => {
+    const days = [];
+    if (!fromDate || !toDate || fromDate > toDate) return days;
+    let d = new Date(fromDate);
+    const end = new Date(toDate);
+    let guard = 0;
+    while (d <= end && guard < 366) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+      guard++;
+    }
+    return days;
+  }, [fromDate, toDate]);
+
+  const totalRows = branchEmps.length * dayList.length;
+
+  const generate = () => {
+    if (branchEmps.length === 0) { alert('ไม่มีพนักงานในสาขาที่เลือก'); return; }
+    if (dayList.length === 0) { alert('กรุณาเลือกช่วงวันที่ให้ถูกต้อง'); return; }
+    if (totalRows > 10000) { alert('ข้อมูลมากเกินไป (เกิน 10,000 แถว) กรุณาลดช่วงวันหรือเลือกสาขา'); return; }
+
+    // หัวตาราง + ข้อมูล: เรียงตามคน → ทุกวันของคนนั้น (EMP001 ครบทุกวัน แล้วค่อย EMP002)
+    const rows = [['employee_id', 'name', 'date', 'check_in', 'check_out']];
+    branchEmps.forEach(emp => {
+      dayList.forEach(date => {
+        rows.push([emp.id, `${emp.firstName} ${emp.lastName}`, date, '', '']);  // เว้นช่องเวลา
+      });
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'ฟอร์มลงเวลา');
+    const bName = branchId === 'all' ? 'ทุกสาขา' : (branches.find(b => b.id === branchId)?.name || branchId);
+    XLSX.writeFile(wb, `ฟอร์มลงเวลา_${bName}_${fromDate}_ถึง_${toDate}.xlsx`);
+    onClose();
+  };
+
+  if (!open) return null;
+  return (
+    <Modal open onClose={onClose} title="ดาวน์โหลดฟอร์มเปล่าสำหรับลงเวลา" size="md">
+      <div className="space-y-4">
+        <p className="text-sm text-ink-500">
+          สร้างไฟล์ Excel ที่มีรายชื่อพนักงาน + วันที่ครบตามที่เลือก เว้นช่อง <b>เวลาเข้า/ออก</b> ให้กรอกจากเครื่องสแกนนิ้ว แล้วนำกลับมาอัปโหลด
+        </p>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+          <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={!!lockedBranch}>
+            {!lockedBranch && <option value="all">ทุกสาขา</option>}
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">จากวันที่</label>
+            <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ถึงวันที่</label>
+            <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="bg-flow-50 border border-flow-100 rounded-xl p-4 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-ink-600">พนักงาน</span>
+            <span className="font-semibold text-ink-900">{branchEmps.length} คน</span>
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-ink-600">จำนวนวัน</span>
+            <span className="font-semibold text-ink-900">{dayList.length} วัน</span>
+          </div>
+          <div className="flex items-center justify-between mt-1 pt-2 border-t border-flow-100">
+            <span className="text-ink-600">รวมทั้งหมด</span>
+            <span className="font-bold text-flow-700">{totalRows.toLocaleString()} แถว</span>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="secondary" onClick={onClose}>ยกเลิก</Button>
+          <Button icon="download" onClick={generate} disabled={totalRows === 0}>ดาวน์โหลดฟอร์ม</Button>
+        </div>
+      </div>
+    </Modal>
   );
 };
 
