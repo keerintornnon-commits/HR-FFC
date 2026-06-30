@@ -9456,6 +9456,7 @@ const AnnouncementModal = ({ open, onClose, editing, onSave, author }) => {
 const TeamCalendarPage = () => {
   const { leaves, employees, branches, leaveTypes, user } = useApp();
   const [cursor, setCursor] = useState(new Date());   // เดือนที่ดู
+  const [selectedDay, setSelectedDay] = useState(null);   // วันที่กดดูรายชื่อทั้งหมด
   const [filterBranch, setFilterBranch] = useState(
     user.role === 'manager' ? (user.branchId || 'all') : 'all'
   );
@@ -9498,6 +9499,8 @@ const TeamCalendarPage = () => {
           type: lt?.label || l.type,
           color: lt?.color || 'gray',
           period: l.period,
+          photo: emp?.photo || '',
+          branchName: emp ? (branches.find(b => b.id === emp.branchId)?.name || '') : '',
         });
       }
     }
@@ -9553,30 +9556,35 @@ const TeamCalendarPage = () => {
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1">
-          {cells.map((d, i) => (
+          {cells.map((d, i) => {
+            const dayItems = d ? (dayMap[d] || []) : [];
+            return (
             <div key={i} className={cls(
               'min-h-[88px] rounded-lg border p-1.5 text-left align-top',
               d ? 'border-ink-100' : 'border-transparent',
               d && isToday(d) ? 'ring-2 ring-brand-300 bg-brand-50/30' : 'bg-white',
-              d && i % 7 === 0 ? 'bg-red-50/30' : ''
-            )}>
+              d && i % 7 === 0 ? 'bg-red-50/30' : '',
+              dayItems.length > 0 ? 'cursor-pointer hover:bg-ink-50/60 transition-colors' : ''
+            )}
+            onClick={() => { if (dayItems.length > 0) setSelectedDay(d); }}>
               {d && (
                 <>
                   <div className={cls('text-xs font-medium mb-1', isToday(d) ? 'text-brand-700' : i % 7 === 0 ? 'text-red-500' : 'text-ink-600')}>{d}</div>
                   <div className="space-y-0.5">
-                    {(dayMap[d] || []).slice(0, 3).map((item, j) => (
+                    {dayItems.slice(0, 3).map((item, j) => (
                       <div key={j} className={cls('text-[10px] leading-tight px-1 py-0.5 rounded truncate', colorClass[item.color] || colorClass.gray)} title={`${item.name} — ${item.type}`}>
                         {item.name}
                       </div>
                     ))}
-                    {(dayMap[d] || []).length > 3 && (
-                      <div className="text-[10px] text-ink-400 px-1">+{dayMap[d].length - 3} คน</div>
+                    {dayItems.length > 3 && (
+                      <div className="text-[10px] text-flow-600 font-medium px-1 hover:underline">+{dayItems.length - 3} คน ดูทั้งหมด</div>
                     )}
                   </div>
                 </>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
 
@@ -9591,6 +9599,30 @@ const TeamCalendarPage = () => {
           ))}
         </div>
       </div>
+
+      {/* Popup รายชื่อคนลาทั้งหมดในวันที่เลือก */}
+      {selectedDay && (
+        <Modal open onClose={() => setSelectedDay(null)}
+          title={`รายชื่อการลา วันที่ ${selectedDay} ${THAI_MONTHS[month]} ${year + 543}`} size="md">
+          <div className="space-y-2">
+            <p className="text-sm text-ink-500 mb-3">มีการลาทั้งหมด {(dayMap[selectedDay] || []).length} คน</p>
+            <div className="max-h-[60vh] overflow-y-auto space-y-1.5">
+              {(dayMap[selectedDay] || []).map((item, j) => (
+                <div key={j} className="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-ink-100 hover:bg-ink-50/50">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar name={item.name} photo={item.photo} size="sm" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-ink-900 truncate">{item.name}</div>
+                      {item.branchName && <div className="text-xs text-ink-400">{item.branchName}</div>}
+                    </div>
+                  </div>
+                  <span className={cls('text-xs px-2.5 py-1 rounded-lg shrink-0', colorClass[item.color] || colorClass.gray)}>{item.type}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
