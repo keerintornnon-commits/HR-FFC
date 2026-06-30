@@ -6524,9 +6524,10 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
 
   let baseSalary, workedDays = 0;
   if (salaryType === 'daily') {
-    // รายวัน: ฐาน = วันมาทำงาน + วันลา (รวมก่อน) แล้วการลาจะถูกหักทีหลังในส่วนหักการลา
+    // รายวัน: ฐาน = วันทำงานทั้งรอบเต็ม (ไม่นับอาทิตย์) คิดเต็มก่อน
+    // แล้วการลา + ขาดงาน จะถูกหักทีหลัง (ในส่วนหักการลา/หักขาดงาน) ให้เห็นชัดเจน
     workedDays = attendedDays;
-    baseSalary = perDay * (attendedDays + leaveDaysTotal);
+    baseSalary = perDay * rangeDays;
   } else {
     // รายเดือน: จ่ายฐานเต็มถ้ารอบครอบคลุม "ทั้งเดือน" (หรือเกือบเต็ม)
     // ไม่ prorate ตามวันสแกน — พนักงานรายเดือนได้เงินเดือนเต็ม แล้วหักเฉพาะขาด/ลาเกินสิทธิ์
