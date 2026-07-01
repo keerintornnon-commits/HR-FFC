@@ -10050,6 +10050,7 @@ const printCertificate = (emp, settings, req, branches) => {
 const MyInfoPage = () => {
   const { employees, attendance, leaves, leaveTypes, branches, payroll, settings, setSettings, user, setEmployees, addToast, loadHistory, historyLoaded, assets } = useApp();
   const [tab, setTab] = useState('overview');
+  const [attMonth, setAttMonth] = useState(new Date().toISOString().slice(0, 7));  // เดือนที่เลือกดูประวัติเข้างาน
   const me = employees.find(e => e.id === user.empId);
 
   // คำขอใบรับรองการทำงานของฉัน
@@ -10088,10 +10089,22 @@ const MyInfoPage = () => {
   // โควต้าวันลา
   const quota = calcQuota(me, leaveTypes, leaves.filter(l => l.employeeId === me.id && l.status === 'approved'), year);
 
-  // ประวัติเข้างาน (เดือนนี้)
+  // ประวัติเข้างาน (เลือกเดือนได้ ย้อนหลัง 3 เดือน)
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const myAtt = attendance.filter(a => a.employeeId === me.id && toYMD(a.date).startsWith(thisMonth))
+  const myAtt = attendance.filter(a => a.employeeId === me.id && toYMD(a.date).startsWith(attMonth))
     .sort((a, b) => toYMD(b.date).localeCompare(toYMD(a.date)));
+
+  // รายการเดือนย้อนหลัง 3 เดือน (รวมเดือนปัจจุบัน = 4 ตัวเลือก)
+  const monthOptions = (() => {
+    const opts = [];
+    const now = new Date();
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: `${THAI_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}` });
+    }
+    return opts;
+  })();
 
   // สลิปเงินเดือนย้อนหลัง
   const mySlips = payroll.filter(p => p.employeeId === me.id)
@@ -10242,7 +10255,16 @@ const MyInfoPage = () => {
       {/* ประวัติเข้างาน */}
       {tab === 'attendance' && (
         <Card className="overflow-hidden">
-          <div className="px-5 py-3 bg-ink-50 text-sm text-ink-600">ประวัติเข้างานเดือน {THAI_MONTHS[new Date().getMonth()]} {year + 543}</div>
+          <div className="px-5 py-3 bg-ink-50 border-b border-ink-100 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-ink-600 mr-1">ประวัติเข้างาน:</span>
+            {monthOptions.map(opt => (
+              <button key={opt.key} onClick={() => setAttMonth(opt.key)}
+                className={cls('text-xs px-3 py-1.5 rounded-lg font-medium transition-colors',
+                  attMonth === opt.key ? 'bg-brand-600 text-white' : 'bg-white border border-ink-200 text-ink-600 hover:bg-ink-50')}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <table className="w-full text-sm">
             <thead className="bg-ink-50/50 text-ink-500 text-left text-xs">
               <tr><th className="px-5 py-2">วันที่</th><th className="px-5 py-2">เข้า</th><th className="px-5 py-2">ออก</th><th className="px-5 py-2">สถานะ</th></tr>
