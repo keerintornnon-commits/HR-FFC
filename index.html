@@ -3093,6 +3093,11 @@ const EmployeeProfileModal = ({ employee, onClose, attendance, leaves, leaveType
                         <span className="font-medium text-ink-900">{type?.label || l.type}</span>
                         <span className="text-ink-400">·</span>
                         <span className="text-sm text-ink-600">{l.days} วัน</span>
+                        {l.type === 'sick' && l.medicalCert && (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            <Icon name="file" className="w-3 h-3" /> มีใบรับรองแพทย์
+                          </span>
+                        )}
                       </div>
                       <Badge color={l.status === 'approved' ? 'green' : l.status === 'rejected' ? 'red' : 'yellow'}>
                         {l.status === 'approved' ? 'อนุมัติแล้ว' : l.status === 'rejected' ? 'ปฏิเสธ' : 'รออนุมัติ'}
@@ -3254,14 +3259,15 @@ const ExportWorkModal = ({ open, onClose, employee, attendance, leaves, leaveTyp
       XLSXlib.utils.book_append_sheet(wb, ws2, 'การเข้างาน');
 
       // Sheet 3: ประวัติการลา
-      const lvHeader = ['ประเภท', 'วันเริ่ม', 'วันสิ้นสุด', 'จำนวนวัน', 'สถานะ', 'เหตุผล'];
+      const lvHeader = ['ประเภท', 'วันเริ่ม', 'วันสิ้นสุด', 'จำนวนวัน', 'ใบรับรองแพทย์', 'สถานะ', 'เหตุผล'];
       const lvRows = leavesInRange.map(l => {
         const t = leaveTypes.find(x => x.id === l.type);
         const st = l.status === 'approved' ? 'อนุมัติ' : l.status === 'rejected' ? 'ปฏิเสธ' : 'รออนุมัติ';
-        return [t?.label || l.type, toYMD(l.startDate), toYMD(l.endDate), l.days, st, l.reason || ''];
+        const cert = l.type === 'sick' ? (l.medicalCert ? 'มี' : 'ไม่มี') : '-';
+        return [t?.label || l.type, toYMD(l.startDate), toYMD(l.endDate), l.days, cert, st, l.reason || ''];
       });
       const ws3 = XLSXlib.utils.aoa_to_sheet([lvHeader, ...lvRows]);
-      ws3['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 30 }];
+      ws3['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 30 }];
       XLSXlib.utils.book_append_sheet(wb, ws3, 'การลา');
 
       const fname = `รายงาน_${employee.firstName}_${employee.id}_${from}_${to}.xlsx`;
@@ -5115,6 +5121,11 @@ const LeavesPage = () => {
                   <span className="font-medium text-ink-900">{type.label}</span>
                   <span className="text-ink-400">·</span>
                   <span className="text-ink-600">{l.days} วัน</span>
+                  {l.type === 'sick' && l.medicalCert && (
+                    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      <Icon name="file" className="w-3 h-3" /> มีใบรับรองแพทย์
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-ink-600">
                   <Icon name="calendar" className="w-4 h-4 text-ink-400" />
@@ -10532,12 +10543,13 @@ const ReportsPage = () => {
 
     // Sheet 3: leaves
     const lvRows = [
-      ['รหัสพนักงาน','ชื่อ-นามสกุล','ประเภท','วันเริ่ม','วันสิ้นสุด','จำนวนวัน','สถานะ','เหตุผล'],
+      ['รหัสพนักงาน','ชื่อ-นามสกุล','ประเภท','วันเริ่ม','วันสิ้นสุด','จำนวนวัน','ใบรับรองแพทย์','สถานะ','เหตุผล'],
       ...monthLeaves.map(l => {
         const e = employees.find(x => x.id === l.employeeId);
         const t = leaveTypes.find(x => x.id === l.type);
+        const cert = l.type === 'sick' ? (l.medicalCert ? 'มี' : 'ไม่มี') : '-';
         return [l.employeeId, e ? `${e.firstName} ${e.lastName}` : '-', t?.label || '-',
-                l.startDate, l.endDate, l.days,
+                l.startDate, l.endDate, l.days, cert,
                 l.status === 'approved' ? 'อนุมัติแล้ว' : l.status === 'rejected' ? 'ปฏิเสธ' : 'รออนุมัติ',
                 l.reason];
       }),
