@@ -1768,7 +1768,7 @@ const LoginPage = ({ onLogin, addToast }) => {
 /* =============================================================
    APP SHELL (sidebar + topbar + content)
    ============================================================= */
-const Sidebar = ({ current, onChange, user, onLogout }) => {
+const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile }) => {
   const { employees } = useApp();
   const [showChangePw, setShowChangePw] = useState(false);
   // เช็คสิทธิ์ของพนักงานที่ login
@@ -1812,7 +1812,12 @@ const Sidebar = ({ current, onChange, user, onLogout }) => {
   });
 
   return (
-    <aside className="w-64 bg-white border-r border-ink-100 flex flex-col h-screen sticky top-0">
+    <aside className={cls(
+      'w-64 bg-white border-r border-ink-100 flex flex-col h-screen z-50 no-print transition-transform duration-300',
+      'lg:sticky lg:top-0 lg:translate-x-0',
+      'fixed top-0 left-0',
+      mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+    )}>
       <div className="px-5 py-5 border-b border-ink-100">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 flex items-center justify-center shadow-soft border border-brand-100 p-1.5">
@@ -12398,6 +12403,7 @@ const App = () => {
     } catch { return null; }
   });
   const [page, setPage]       = useState('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [employees, setEmployees]     = useState([]);
   const [attendance, setAttendance]   = useState([]);
   const [leaves, setLeaves]           = useState([]);
@@ -12617,13 +12623,31 @@ const App = () => {
             เชื่อมต่อ Supabase
           </div>
         )}
+
+        {/* ปุ่มแฮมเบอร์เกอร์ (เฉพาะมือถือ) */}
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className="lg:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white shadow-soft border border-ink-100 flex items-center justify-center no-print">
+          <svg className="w-5 h-5 text-ink-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round" />
+          </svg>
+        </button>
+
+        {/* Overlay มืดหลังเมนู (มือถือ) */}
+        {mobileMenuOpen && (
+          <div onClick={() => setMobileMenuOpen(false)}
+            className="lg:hidden fixed inset-0 bg-black/40 z-50 no-print" />
+        )}
+
         <Sidebar
           current={page}
-          onChange={setPage}
+          onChange={(p) => { setPage(p); setMobileMenuOpen(false); }}
           user={effectiveUser}
           onLogout={handleLogout}
+          mobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
         />
-        <main className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0 pt-14 lg:pt-0">
           {page === 'dashboard'  && <Dashboard />}
           {page === 'checkin'    && <CheckInPage />}
           {page === 'employees'  && <EmployeesPage />}
