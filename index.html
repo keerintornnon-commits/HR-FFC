@@ -1255,7 +1255,7 @@ const recordDeduct = (emp, a, leaves, leaveTypes) => {
   if (!emp) return { amount: 0, label: '-' };
   const salaryType = emp.salaryType || 'monthly';
   const base = Number(emp.baseSalary) || 0;
-  const perDay = salaryType === 'daily' ? base : base / 30;
+  const perDay = salaryType === 'daily' ? base : salaryType === 'weekly' ? base / 6 : base / 30;
   const perHour = perDay / 8;
   const dYMD = toYMD(a.date);
 
@@ -1283,8 +1283,8 @@ const recordDeduct = (emp, a, leaves, leaveTypes) => {
     // WFH/นอกสถานที่ = ไม่หัก
     if (type === 'wfh' || type === 'offsite') return { amount: 0, label: '-' };
 
-    if (salaryType === 'daily') {
-      // รายวัน: ลาทุกประเภท = หักตามวัน/ชั่วโมง
+    if (salaryType === 'daily' || salaryType === 'weekly') {
+      // รายวัน/รายสัปดาห์: ลาทุกประเภท = หักตามวัน/ชั่วโมง
       let amt = (lv.period === 'hours' && lv.hours) ? perHour * Number(lv.hours) : perDay * dayUnit;
       amt = Math.round(amt * 100) / 100;
       return amt > 0 ? { amount: amt, label: `หัก ${fmtMoney(amt)}฿` } : { amount: 0, label: '-' };
@@ -3680,9 +3680,10 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
           </h4>
 
           {/* ประเภทเงินเดือน */}
-          <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="grid grid-cols-3 gap-2 mb-3">
             {[
               { id: 'monthly', label: 'รายเดือน', sub: 'จ่ายเป็นเดือน' },
+              { id: 'weekly',  label: 'รายสัปดาห์', sub: 'จ่ายเป็นสัปดาห์' },
               { id: 'daily',   label: 'รายวัน',   sub: 'จ่ายตามวันทำงาน' },
             ].map(t => (
               <button key={t.id} type="button" onClick={() => setForm({ ...form, salaryType: t.id })}
@@ -3699,15 +3700,15 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-ink-700 mb-1.5">
-                ฐานเงินเดือน {form.salaryType === 'daily' ? '(ต่อวัน)' : '(ต่อเดือน)'}
+                ฐานเงินเดือน {form.salaryType === 'daily' ? '(ต่อวัน)' : form.salaryType === 'weekly' ? '(ต่อสัปดาห์)' : '(ต่อเดือน)'}
               </label>
               <Input type="number" min={0} step="0.01" value={form.baseSalary || ''}
                 onChange={(e) => setForm({ ...form, baseSalary: e.target.value })}
-                placeholder={form.salaryType === 'daily' ? 'เช่น 400' : 'เช่น 15000'} />
+                placeholder={form.salaryType === 'daily' ? 'เช่น 400' : form.salaryType === 'weekly' ? 'เช่น 3500' : 'เช่น 15000'} />
             </div>
             <div>
               <label className="block text-sm font-medium text-ink-700 mb-1.5">
-                เงินพิเศษ {form.salaryType === 'daily' ? '(ต่อวัน)' : '(ต่อเดือน)'}
+                เงินพิเศษ {form.salaryType === 'daily' ? '(ต่อวัน)' : form.salaryType === 'weekly' ? '(ต่อสัปดาห์)' : '(ต่อเดือน)'}
               </label>
               <Input type="number" min={0} step="0.01" value={form.specialAllowance || ''}
                 onChange={(e) => setForm({ ...form, specialAllowance: e.target.value })}
@@ -3717,6 +3718,11 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
           {form.salaryType === 'monthly' && Number(form.baseSalary) > 0 && (
             <div className="text-xs text-ink-500 mt-2">
               เงินเดือน/วัน = {fmtMoney(Number(form.baseSalary) / 30)} บาท (ฐาน ÷ 30)
+            </div>
+          )}
+          {form.salaryType === 'weekly' && Number(form.baseSalary) > 0 && (
+            <div className="text-xs text-ink-500 mt-2">
+              เงินเดือน/วัน = {fmtMoney(Number(form.baseSalary) / 6)} บาท (ฐาน ÷ 6 วันทำงาน/สัปดาห์)
             </div>
           )}
 
@@ -6609,8 +6615,8 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   };
   const rangeDays = countWorkdays(from, to);
 
-  // เงินเดือน/วัน: รายเดือน = ฐาน/30, รายวัน = ฐาน (ต่อวันอยู่แล้ว)
-  const perDay = salaryType === 'daily' ? base : base / 30;
+  // เงินเดือน/วัน: รายเดือน = ฐาน/30, รายวัน = ฐาน (ต่อวัน), รายสัปดาห์ = ฐาน/6 (6 วันทำงาน/สัปดาห์)
+  const perDay = salaryType === 'daily' ? base : salaryType === 'weekly' ? base / 6 : base / 30;
   const perHour = perDay / 8;
 
   // เช็ควันอาทิตย์ (getDay()===0) — วันทำงานคือ จันทร์-เสาร์
@@ -6635,8 +6641,8 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     .reduce((sum, l) => sum + (Number(l.days) || 0), 0);
 
   let baseSalary, workedDays = 0;
-  if (salaryType === 'daily') {
-    // รายวัน: ฐาน = วันทำงานทั้งรอบเต็ม (ไม่นับอาทิตย์) คิดเต็มก่อน
+  if (salaryType === 'daily' || salaryType === 'weekly') {
+    // รายวัน/รายสัปดาห์: ฐาน = วันทำงานทั้งรอบเต็ม (ไม่นับอาทิตย์) คิดเต็มก่อน
     // แล้วการลา + ขาดงาน จะถูกหักทีหลัง (ในส่วนหักการลา/หักขาดงาน) ให้เห็นชัดเจน
     workedDays = attendedDays;
     baseSalary = perDay * rangeDays;
@@ -6694,13 +6700,13 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     if (type === 'wfh' || type === 'offsite') {
       // WFH / นอกสถานที่ — ไม่หัก (ถือว่าทำงาน)
       reason = 'ไม่หัก (ทำงานนอกสถานที่)';
-    } else if (salaryType === 'daily') {
-      // รายวัน: ลาทุกประเภท = ไม่มาทำงาน = ไม่ได้เงินวันนั้น (หักเต็มตามวันลา)
+    } else if (salaryType === 'daily' || salaryType === 'weekly') {
+      // รายวัน/รายสัปดาห์: ลาทุกประเภท = ไม่มาทำงาน = ไม่ได้เงินวันนั้น (หักเต็มตามวันลา)
       // (ฐานเงินเดือนรวมวันลาไว้แล้ว จึงหักออกตรงนี้ ให้เห็นชัดเจน)
       if (l.period === 'hours' && l.hours) {
-        deduct = perHour * Number(l.hours); reason = `รายวัน — หักตามชั่วโมงลา (${l.hours} ชม.)`;
+        deduct = perHour * Number(l.hours); reason = `หักตามชั่วโมงลา (${l.hours} ชม.)`;
       } else {
-        deduct = perDay * days; reason = 'รายวัน — หักตามวันลา';
+        deduct = perDay * days; reason = 'หักตามวันลา';
       }
     } else if (type === 'sick') {
       // ลาป่วย (รายเดือน): มีใบรับรองแพทย์ = ไม่หัก, ไม่มี = หักเต็มวัน
@@ -6871,16 +6877,21 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
         {/* ประเภทเงินเดือน */}
         <div>
           <label className="block text-sm font-medium text-ink-700 mb-1.5">ประเภทเงินเดือน</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button onClick={() => setSalaryType('monthly')}
               className={cls('p-3 rounded-xl border text-left', salaryType === 'monthly' ? 'border-flow-400 bg-flow-50 ring-1 ring-flow-200' : 'border-ink-200')}>
               <div className="font-medium text-sm">รายเดือน</div>
-              <div className="text-xs text-ink-500">จ่ายรอบเดียว/เดือน</div>
+              <div className="text-xs text-ink-500">รอบเดียว/เดือน</div>
+            </button>
+            <button onClick={() => setSalaryType('weekly')}
+              className={cls('p-3 rounded-xl border text-left', salaryType === 'weekly' ? 'border-flow-400 bg-flow-50 ring-1 ring-flow-200' : 'border-ink-200')}>
+              <div className="font-medium text-sm">รายสัปดาห์</div>
+              <div className="text-xs text-ink-500">จ่ายทุกสัปดาห์</div>
             </button>
             <button onClick={() => setSalaryType('daily')}
               className={cls('p-3 rounded-xl border text-left', salaryType === 'daily' ? 'border-flow-400 bg-flow-50 ring-1 ring-flow-200' : 'border-ink-200')}>
               <div className="font-medium text-sm">รายวัน</div>
-              <div className="text-xs text-ink-500">จ่าย 2 รอบ/เดือน</div>
+              <div className="text-xs text-ink-500">2 รอบ/เดือน</div>
             </button>
           </div>
         </div>
@@ -6922,7 +6933,7 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-sm font-medium text-ink-700">
-              พนักงาน{salaryType === 'monthly' ? 'รายเดือน' : 'รายวัน'} ({eligibleEmps.length} คน)
+              พนักงาน{salaryType === 'monthly' ? 'รายเดือน' : salaryType === 'weekly' ? 'รายสัปดาห์' : 'รายวัน'} ({eligibleEmps.length} คน)
             </label>
             {eligibleEmps.length > 0 && (
               <button onClick={toggleAll} className="text-xs text-flow-600 hover:underline">
@@ -6932,7 +6943,7 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
           </div>
           {eligibleEmps.length === 0 ? (
             <div className="p-4 text-center text-sm text-ink-400 border border-ink-100 rounded-xl">
-              ไม่มีพนักงาน{salaryType === 'monthly' ? 'รายเดือน' : 'รายวัน'}ในสาขาที่เลือก
+              ไม่มีพนักงาน{salaryType === 'monthly' ? 'รายเดือน' : salaryType === 'weekly' ? 'รายสัปดาห์' : 'รายวัน'}ในสาขาที่เลือก
             </div>
           ) : (
             <div className="max-h-56 overflow-y-auto border border-ink-100 rounded-xl divide-y divide-ink-50">
@@ -7700,7 +7711,7 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
               <div className="font-medium text-flow-800">คำนวณอัตโนมัติจากการเข้างาน + การลา</div>
               <div className="text-xs text-ink-600 mt-0.5">
                 {selectedEmp ? (
-                  <>ประเภท: <strong>{selectedEmp.salaryType === 'daily' ? 'รายวัน' : 'รายเดือน'}</strong>
+                  <>ประเภท: <strong>{selectedEmp.salaryType === 'daily' ? 'รายวัน' : selectedEmp.salaryType === 'weekly' ? 'รายสัปดาห์' : 'รายเดือน'}</strong>
                   {' '}· ฐาน {fmtMoney(selectedEmp.baseSalary)} บาท</>
                 ) : 'เลือกพนักงานก่อน'}
               </div>
@@ -7711,7 +7722,7 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
           {autoInfo && (
             <div className="mt-3 pt-3 border-t border-flow-200 space-y-1.5 text-xs">
               <div className="flex justify-between"><span className="text-ink-600">เงินเดือน/วัน</span><span className="font-medium">{fmtMoney(autoInfo.perDay)} บาท</span></div>
-              {autoInfo.salaryType === 'daily' && (
+              {(autoInfo.salaryType === 'daily' || autoInfo.salaryType === 'weekly') && (
                 <div className="flex justify-between"><span className="text-ink-600">วันทำงาน</span><span className="font-medium">{autoInfo.workedDays} วัน</span></div>
               )}
               <div className="flex justify-between"><span className="text-ink-600">ฐานเงินเดือน</span><span className="font-medium text-emerald-700">{fmtMoney(autoInfo.baseSalary)} บาท</span></div>
@@ -10026,7 +10037,7 @@ const printCertificate = (emp, settings, req, branches) => {
   const startDate = emp.startDate || emp.hireDate || '';
   const salaryType = emp.salaryType || 'monthly';
   const baseSalary = Number(emp.baseSalary) || 0;
-  const salaryUnit = salaryType === 'daily' ? 'บาท/วัน' : 'บาท/เดือน';
+  const salaryUnit = salaryType === 'daily' ? 'บาท/วัน' : salaryType === 'weekly' ? 'บาท/สัปดาห์' : 'บาท/เดือน';
   const salary = baseSalary > 0
     ? `${baseSalary.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${salaryUnit}`
     : '-';
