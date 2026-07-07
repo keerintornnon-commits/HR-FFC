@@ -5756,6 +5756,7 @@ const LeavesPage = () => {
   const [filter, setFilter] = useState('all');
   const [filterBranch, setFilterBranch] = useState('all');
   const [openRequest, setOpenRequest] = useState(false);
+  const [openExport, setOpenExport] = useState(false);
 
   // สิทธิ์อนุมัติ: admin/hr อนุมัติได้ทุกคน, พนักงานตาม approvalScope
   const currentEmp = employees.find(e => e.id === user.empId);
@@ -5811,7 +5812,14 @@ const LeavesPage = () => {
       <Topbar
         title="การลา"
         subtitle="จัดการคำขอลาของพนักงาน"
-        action={<Button icon="plus" onClick={() => setOpenRequest(true)}>ขอลา</Button>}
+        action={
+          <div className="flex items-center gap-2">
+            {(user.role === 'admin' || user.role === 'hr' || user.role === 'manager' || approvalScope === 'regional') && (
+              <Button variant="outline" icon="download" onClick={() => setOpenExport(true)}>Export</Button>
+            )}
+            <Button icon="plus" onClick={() => setOpenRequest(true)}>ขอลา</Button>
+          </div>
+        }
       />
 
       {/* Filter tabs + สาขา */}
@@ -5935,7 +5943,228 @@ const LeavesPage = () => {
         leaveTypes={leaveTypes}
         user={user}
       />
+
+      <LeaveExportModal
+        open={openExport}
+        onClose={() => setOpenExport(false)}
+        employees={employees}
+        leaves={leaves}
+        leaveTypes={leaveTypes}
+        branches={branches}
+        user={user}
+        addToast={addToast}
+      />
     </div>
+  );
+};
+
+const LeaveExportModal = ({ open, onClose, employees, leaves, leaveTypes, branches, user, addToast }) => {
+  const [scope, setScope] = useState('branch');   // branch | person
+  const [branchId, setBranchId] = useState('all');
+  const [empId, setEmpId] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // all | approved | pending | rejected
+
+  // ขอบเขตสิทธิ์: manager/regional เห็นเฉพาะสาขาตัวเอง
+  const me = employees.find(e => e.id === user.empId);
+  const canAll = user.role === 'admin' || user.role === 'hr';
+  const lockedBranch = !canAll ? (user.branchId || me?.branchId) : null;
+
+  // สาขาที่เลือกได้
+  const branchOptions = canAll ? branches : branches.filter(b => b.id === lockedBranch);
+
+  // รายชื่อพนักงานสำหรับ dropdown (ตามสาขาที่เลือก)
+  const empOptions = employees.filter(e => {
+    if (!canAll && e.branchId !== lockedBranch) return false;
+    if (scope === 'person' && branchId !== 'all' && e.branchId !== branchId) return false;
+    return true;
+  }).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  const leaveLabel = (id) => (leaveTypes.find(t => t.id === id)?.label) || 'ลางาน';
+  const bName = (id) => (branches.find(b => b.id === id)?.name || id || '-');
+  const statusLabel = (s) => s === 'approved' ? 'อนุมัติแล้ว' : s === 'rejected' ? 'ปฏิเสธ' : 'รออนุมัติ';
+  const periodLabel = (l) => {
+    if (l.leavePeriod === 'morning') return 'ครึ่งเช้า';
+    if (l.leavePeriod === 'afternoon') return 'ครึ่งบ่าย';
+    if (l.leavePeriod === 'hours') return l.leaveHours ? `${l.leaveHours} ชม.` : 'รายชั่วโมง';
+    return 'เต็มวัน';
+  };
+
+  const doExport = () => {
+    // กรองข้อมูล
+    let rows = leaves.filter(l => {
+      const emp = employees.find(e => e.id === l.employeeId);
+      if (!emp) return false;
+      // สิทธิ์
+      if (!canAll && emp.branchId !== lockedBranch) return false;
+      // ขอบเขต
+      if (scope === 'person') {
+        if (!empId) return false;
+        if (l.employeeId !== empId) return false;
+      } else {
+        if (branchId !== 'all' && emp.branchId !== branchId) return false;
+      }
+      // สถานะ
+      if (statusFilter !== 'all' && l.status !== statusFilter) return false;
+      // ช่วงวันที่ (ใช้ startDate)
+      const sd = toYMD(l.startDate);
+      if (fromDate && sd < fromDate) return false;
+      if (toDate && sd > toDate) return false;
+      return true;
+    }).sort((a, b) => toYMD(a.startDate).localeCompare(toYMD(b.startDate)));
+
+    if (rows.length === 0) { addToast('error', 'ไม่มีข้อมูลการลาตามเงื่อนไขที่เลือก'); return; }
+
+    const header = ['รหัส', 'ชื่อ-นามสกุล', 'สาขา', 'ประเภทการลา', 'วันเริ่ม', 'วันสิ้นสุด', 'ช่วง', 'จำนวนวัน', 'เหตุผล', 'สถานะ', 'วันที่ยื่น'];
+    const data = rows.map(l => {
+      const emp = employees.find(e => e.id === l.employeeId) || {};
+      return [
+        emp.id || l.employeeId,
+        `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+        bName(emp.branchId),
+        leaveLabel(l.leaveType),
+        toYMD(l.startDate),
+        toYMD(l.endDate),
+        periodLabel(l),
+        Number(l.days) || 0,
+        l.reason || '',
+        statusLabel(l.status),
+        l.createdAt ? toYMD(l.createdAt) : '',
+      ];
+    });
+
+    // สรุปยอดรวมวันลาตามประเภท (เฉพาะอนุมัติแล้ว)
+    const approvedRows = rows.filter(l => l.status === 'approved');
+    const sumByType = {};
+    approvedRows.forEach(l => {
+      const k = leaveLabel(l.leaveType);
+      sumByType[k] = (sumByType[k] || 0) + (Number(l.days) || 0);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+    ws['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 9 }, { wch: 24 }, { wch: 12 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'รายการลา');
+
+    // ชีตสรุป
+    if (Object.keys(sumByType).length > 0) {
+      const sumHeader = ['ประเภทการลา', 'รวมจำนวนวัน (อนุมัติแล้ว)'];
+      const sumData = Object.entries(sumByType).map(([k, v]) => [k, v]);
+      sumData.push(['รวมทั้งหมด', approvedRows.reduce((s, l) => s + (Number(l.days) || 0), 0)]);
+      const ws2 = XLSX.utils.aoa_to_sheet([sumHeader, ...sumData]);
+      ws2['!cols'] = [{ wch: 20 }, { wch: 24 }];
+      XLSX.utils.book_append_sheet(wb, ws2, 'สรุป');
+    }
+
+    // ตั้งชื่อไฟล์
+    const parts = ['รายงานการลา'];
+    if (scope === 'person' && empId) {
+      const e = employees.find(x => x.id === empId);
+      parts.push(e ? `${e.firstName}${e.lastName}` : empId);
+    } else if (branchId !== 'all') {
+      parts.push(bName(branchId));
+    } else if (!canAll) {
+      parts.push(bName(lockedBranch));
+    }
+    if (fromDate || toDate) parts.push(`${fromDate || 'เริ่มต้น'}_ถึง_${toDate || 'ล่าสุด'}`);
+    const fname = parts.join('_') + '.xlsx';
+
+    XLSX.writeFile(wb, fname);
+    addToast('success', `ส่งออก ${rows.length} รายการเรียบร้อย`);
+    onClose();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="ส่งออกข้อมูลการลา">
+      <div className="space-y-4">
+        {/* เลือกขอบเขต */}
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">ส่งออกแบบ</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setScope('branch')}
+              className={cls('flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all',
+                scope === 'branch' ? 'bg-flow-600 text-white border-flow-600' : 'bg-white text-ink-600 border-ink-200 hover:border-flow-300')}>
+              ตามภาค / สาขา
+            </button>
+            <button
+              onClick={() => setScope('person')}
+              className={cls('flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all',
+                scope === 'person' ? 'bg-flow-600 text-white border-flow-600' : 'bg-white text-ink-600 border-ink-200 hover:border-flow-300')}>
+              รายบุคคล
+            </button>
+          </div>
+        </div>
+
+        {/* เลือกสาขา */}
+        {scope === 'branch' && (
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ภาค / สาขา</label>
+            <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+              {canAll && <option value="all">ทุกสาขา</option>}
+              {branchOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </div>
+        )}
+
+        {/* เลือกบุคคล */}
+        {scope === 'person' && (
+          <>
+            {canAll && (
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">กรองตามสาขา (ไม่บังคับ)</label>
+                <Select value={branchId} onChange={(e) => { setBranchId(e.target.value); setEmpId(''); }}>
+                  <option value="all">ทุกสาขา</option>
+                  {branchOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </Select>
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">พนักงาน</label>
+              <Select value={empId} onChange={(e) => setEmpId(e.target.value)}>
+                <option value="">— เลือกพนักงาน —</option>
+                {empOptions.map(e => (
+                  <option key={e.id} value={e.id}>{e.id} · {e.firstName} {e.lastName}</option>
+                ))}
+              </Select>
+            </div>
+          </>
+        )}
+
+        {/* ช่วงวันที่ */}
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">ช่วงวันที่ (ไม่บังคับ)</label>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <span className="text-xs text-ink-500 mb-1 block">ตั้งแต่</span>
+              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            </div>
+            <div>
+              <span className="text-xs text-ink-500 mb-1 block">ถึง</span>
+              <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </div>
+          </div>
+          <p className="text-xs text-ink-400 mt-1.5">เว้นว่างไว้ = ส่งออกทั้งหมด</p>
+        </div>
+
+        {/* สถานะ */}
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">สถานะ</label>
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">ทุกสถานะ</option>
+            <option value="approved">อนุมัติแล้ว</option>
+            <option value="pending">รออนุมัติ</option>
+            <option value="rejected">ปฏิเสธ</option>
+          </Select>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button variant="outline" onClick={onClose} className="flex-1">ยกเลิก</Button>
+          <Button icon="download" onClick={doExport} className="flex-1">ส่งออก Excel</Button>
+        </div>
+      </div>
+    </Modal>
   );
 };
 
