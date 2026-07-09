@@ -5209,98 +5209,175 @@ const countLateInMonth = (empId, monthStr, attendance) => {
 
 // พิมพ์ใบเตือน
 const printWarning = (emp, warning, settings, branches) => {
+  const S = 'scr' + 'ipt';
   const branch = branches.find(b => b.id === emp.branchId);
   const monthLabel = (() => {
+    if (!warning.month) return '';
     const [y, m] = (warning.month || '').split('-');
     return `${THAI_MONTHS[Number(m) - 1] || ''} ${Number(y) + 543}`;
   })();
   const issueDate = warning.approvedAt || warning.createdAt || new Date().toISOString();
   const d = new Date(issueDate);
   const dateThai = `${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
+  const fileName = `ใบเตือน_${emp.firstName}${emp.lastName}_${warning.month || toYMD(issueDate)}`;
+
+  // หัวเรื่อง + เนื้อหา: ถ้าเป็นใบเตือนกำหนดเอง ใช้ข้อความที่กรอก, ถ้าเป็นมาสายใช้ข้อความอัตโนมัติ
+  const isCustom = warning.type === 'custom';
+  const subjectText = isCustom ? (warning.subject || 'การกระทำผิดระเบียบบริษัท') : 'การมาปฏิบัติงานสาย';
+  const boxHtml = isCustom
+    ? `<div class="warn-reason">${warning.subject || 'พบว่าท่านกระทำผิดระเบียบของบริษัท'}</div>
+       ${warning.detail ? `<div style="margin-top:6px;font-size:14px;color:#444">${warning.detail}</div>` : ''}`
+    : `<div class="warn-reason">พบว่าท่านมาปฏิบัติงานสายจำนวน ${warning.lateCount} ครั้ง ในเดือน${monthLabel}</div>
+       <div style="margin-top:6px;font-size:14px;color:#666">ซึ่งเกินเกณฑ์ที่บริษัทกำหนด (${warning.threshold} ครั้งต่อเดือน)</div>`;
+  const bodyPara = isCustom
+    ? `<p>ตามที่บริษัทได้กำหนดระเบียบและข้อบังคับในการปฏิบัติงานสำหรับพนักงานนั้น บริษัทตรวจสอบพบว่าท่านได้กระทำการอันเป็นการฝ่าฝืนระเบียบตามรายละเอียดข้างต้น</p>`
+    : `<p>ตามที่บริษัทได้กำหนดระเบียบการปฏิบัติงานให้พนักงานมาปฏิบัติงานตรงตามเวลาที่กำหนดนั้น บริษัทตรวจสอบพบว่าท่านมาปฏิบัติงานสายเกินกว่าเกณฑ์ที่บริษัทกำหนดไว้ตามรายละเอียดข้างต้น</p>`;
 
   const win = window.open('', '_blank');
-  if (!win) { alert('กรุณาอนุญาต popup เพื่อพิมพ์ใบเตือน'); return; }
+  if (!win) { alert('กรุณาอนุญาต popup เพื่อเปิดใบเตือน'); return; }
   win.document.write(`
     <!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
     <title>ใบเตือน - ${emp.firstName} ${emp.lastName}</title>
+    <${S} src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></${S}>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
       * { margin:0; padding:0; box-sizing:border-box; font-family:'Sarabun',sans-serif; }
-      body { padding:48px 56px; color:#1a1a1a; line-height:1.7; font-size:16px; }
-      .head { display:flex; align-items:center; gap:16px; border-bottom:3px solid #0B2A4A; padding-bottom:16px; margin-bottom:8px; }
-      .head img { width:64px; height:auto; }
-      .company { font-size:20px; font-weight:700; color:#0B2A4A; }
-      .company small { display:block; font-size:13px; font-weight:400; color:#555; }
-      .doc-no { text-align:right; font-size:14px; color:#666; margin-bottom:24px; }
-      h1 { text-align:center; font-size:24px; color:#0B2A4A; margin:24px 0 8px; }
-      .sub { text-align:center; color:#b91c1c; font-weight:600; margin-bottom:28px; }
-      .row { margin-bottom:12px; }
-      .label { font-weight:600; display:inline-block; min-width:130px; }
-      .box { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:16px 20px; margin:20px 0; }
+      body { color:#1a1a1a; background:#e5e7eb; font-size:15px; line-height:1.6; }
+      .toolbar { position:sticky; top:0; background:#0B2A4A; padding:12px 20px; display:flex; gap:10px; justify-content:center; z-index:10; box-shadow:0 2px 8px rgba(0,0,0,.2); }
+      .toolbar button { font-family:'Sarabun',sans-serif; font-size:14px; font-weight:600; padding:9px 20px; border-radius:8px; border:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+      .btn-pdf { background:#10B981; color:#fff; }
+      .btn-pdf:hover { opacity:.9; }
+      .btn-print { background:transparent; color:#fff; border:1px solid rgba(255,255,255,.4) !important; }
+      .btn-print:hover { background:rgba(255,255,255,.1); }
+      .btn-close { background:#fff; color:#333; }
+      .btn-close:hover { background:#f1f5f9; }
+      .sheet-wrap { padding:24px; display:flex; justify-content:center; }
+      .page { width:210mm; min-height:297mm; background:#fff; padding:20mm 22mm; position:relative; box-shadow:0 4px 20px rgba(0,0,0,.15); }
+      .head { display:flex; align-items:center; gap:14px; border-bottom:3px solid #0B2A4A; padding-bottom:12px; margin-bottom:6px; }
+      .head img { width:56px; height:auto; }
+      .company { font-size:18px; font-weight:700; color:#0B2A4A; }
+      .company small { display:block; font-size:12px; font-weight:400; color:#555; margin-top:2px; }
+      .doc-no { text-align:right; font-size:13px; color:#666; margin-bottom:16px; }
+      h1 { text-align:center; font-size:22px; color:#0B2A4A; margin:16px 0 6px; }
+      .sub { text-align:center; color:#b91c1c; font-weight:600; margin-bottom:20px; font-size:15px; }
+      .row { margin-bottom:8px; }
+      .label { font-weight:600; display:inline-block; min-width:120px; }
+      .box { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:14px 18px; margin:16px 0; }
       .warn-reason { font-weight:600; color:#b91c1c; }
-      p { margin-bottom:14px; text-align:justify; }
-      .sign { display:flex; justify-content:space-between; margin-top:64px; }
+      p { margin-bottom:10px; text-align:justify; }
+      .sign { display:flex; justify-content:space-between; margin-top:40px; }
       .sign-box { text-align:center; width:45%; }
-      .sign-slot { position:relative; height:70px; }
-      .sign-slot img { position:absolute; bottom:-2px; left:50%; transform:translateX(-50%); width:56px; height:auto; }
+      .sign-slot { position:relative; height:52px; }
+      .sign-slot img { position:absolute; bottom:-2px; left:50%; transform:translateX(-50%); width:52px; height:auto; }
       .sign-line { border-top:1px solid #333; padding-top:6px; }
-      .ack { margin-top:40px; padding-top:20px; border-top:1px dashed #ccc; font-size:14px; color:#555; }
-      @media print { body { padding:32px 40px; } }
+      .ack { margin-top:28px; padding-top:16px; border-top:1px dashed #ccc; font-size:13px; color:#555; }
+      @media print {
+        body { background:#fff; }
+        .toolbar { display:none; }
+        .sheet-wrap { padding:0; }
+        .page { box-shadow:none; width:auto; min-height:auto; padding:16mm 20mm; }
+        @page { size:A4; margin:0; }
+      }
     </style></head><body>
-      <div class="head">
-        <img src="${LOGO_EAGLE}" alt="FFC" />
-        <div class="company">${settings.companyName || 'บริษัท ฟรีด้อมโฟล เทรดดิ้ง จำกัด'}
-          <small>${settings.address || 'เลขที่ 10/95 อาคารเดอะเทรนดี้ ชั้น 6 ซอย 13 แขวงคลองเตยเหนือ เขตวัฒนา กรุงเทพมหานคร 10110'}${settings.phone ? ' · โทร. ' + settings.phone : ''}</small>
+      <div class="toolbar">
+        <button class="btn-pdf" onclick="downloadPDF()">⬇ ดาวน์โหลด PDF</button>
+        <button class="btn-print" onclick="window.print()">🖨 พิมพ์</button>
+        <button class="btn-close" onclick="window.close()">✕ ปิด</button>
+      </div>
+      <div class="sheet-wrap">
+        <div class="page" id="warn-page">
+          <div class="head">
+            <img src="${LOGO_EAGLE}" alt="FFC" />
+            <div class="company">${settings.companyName || 'บริษัท ฟรีด้อมโฟล เทรดดิ้ง จำกัด'}
+              <small>${settings.address || 'เลขที่ 10/95 อาคารเดอะเทรนดี้ ชั้น 6 ซอย 13 แขวงคลองเตยเหนือ เขตวัฒนา กรุงเทพมหานคร 10110'}${settings.phone ? ' · โทร. ' + settings.phone : ''}</small>
+            </div>
+          </div>
+          <div class="doc-no">เลขที่: ${warning.id || '-'}<br>วันที่ ${dateThai}</div>
+
+          <h1>หนังสือเตือน</h1>
+          <div class="sub">เรื่อง ${subjectText}</div>
+
+          <div class="row"><span class="label">เรียน</span> ${emp.firstName} ${emp.lastName}</div>
+          <div class="row"><span class="label">ตำแหน่ง</span> ${emp.position || '-'}</div>
+          <div class="row"><span class="label">สังกัด</span> ${branch ? branch.name : '-'}</div>
+
+          <div class="box">
+            ${boxHtml}
+          </div>
+
+          ${bodyPara}
+
+          <p>บริษัทจึงขอออกหนังสือเตือนฉบับนี้ เพื่อให้ท่านปรับปรุงแก้ไขการปฏิบัติงานให้ถูกต้องตามระเบียบของบริษัท หากท่านยังคงฝ่าฝืนหรือกระทำผิดซ้ำอีก บริษัทอาจพิจารณาดำเนินการทางวินัยในขั้นต่อไปตามระเบียบของบริษัท</p>
+
+          ${warning.note ? `<p><strong>หมายเหตุ:</strong> ${warning.note}</p>` : ''}
+
+          <p>จึงเรียนมาเพื่อทราบและถือปฏิบัติโดยเคร่งครัด</p>
+
+          <div class="sign">
+            <div class="sign-box">
+              <div class="sign-slot"><img src="${SIGNATURE_HR}" alt="ลายเซ็น" /></div>
+              <div class="sign-line">นายฉัตรดนัย ลี้ฮะจือ</div>
+              <div>ฝ่ายบุคคล</div>
+            </div>
+            <div class="sign-box">
+              <div class="sign-slot"></div>
+              <div class="sign-line">ลงชื่อพนักงานผู้รับทราบ</div>
+              <div>${emp.firstName} ${emp.lastName}</div>
+            </div>
+          </div>
+
+          <div class="ack">
+            ข้าพเจ้าได้รับทราบหนังสือเตือนฉบับนี้แล้ว &nbsp;&nbsp; วันที่ ............/............/............
+          </div>
         </div>
       </div>
-      <div class="doc-no">เลขที่: ${warning.id || '-'}<br>วันที่ ${dateThai}</div>
-
-      <h1>หนังสือเตือน</h1>
-      <div class="sub">เรื่อง การมาปฏิบัติงานสาย</div>
-
-      <div class="row"><span class="label">เรียน</span> ${emp.firstName} ${emp.lastName}</div>
-      <div class="row"><span class="label">ตำแหน่ง</span> ${emp.position || '-'}</div>
-      <div class="row"><span class="label">สังกัด</span> ${branch ? branch.name : '-'}</div>
-
-      <div class="box">
-        <div class="warn-reason">พบว่าท่านมาปฏิบัติงานสายจำนวน ${warning.lateCount} ครั้ง ในเดือน${monthLabel}</div>
-        <div style="margin-top:8px;font-size:14px;color:#666">ซึ่งเกินเกณฑ์ที่บริษัทกำหนด (${warning.threshold} ครั้งต่อเดือน)</div>
-      </div>
-
-      <p>ตามที่บริษัทได้กำหนดระเบียบการปฏิบัติงานให้พนักงานมาปฏิบัติงานตรงตามเวลาที่กำหนดนั้น บริษัทตรวจสอบพบว่าท่านมาปฏิบัติงานสายเกินกว่าเกณฑ์ที่บริษัทกำหนดไว้ตามรายละเอียดข้างต้น</p>
-
-      <p>บริษัทจึงขอออกหนังสือเตือนฉบับนี้ เพื่อให้ท่านปรับปรุงการมาปฏิบัติงานให้ตรงต่อเวลา หากท่านยังคงฝ่าฝืนหรือกระทำผิดซ้ำอีก บริษัทอาจพิจารณาดำเนินการทางวินัยในขั้นต่อไปตามระเบียบของบริษัท</p>
-
-      ${warning.note ? `<p><strong>หมายเหตุ:</strong> ${warning.note}</p>` : ''}
-
-      <p>จึงเรียนมาเพื่อทราบและถือปฏิบัติโดยเคร่งครัด</p>
-
-      <div class="sign">
-        <div class="sign-box">
-          <div class="sign-slot"><img src="${SIGNATURE_HR}" alt="ลายเซ็น" /></div>
-          <div class="sign-line">นายฉัตรดนัย ลี้ฮะจือ</div>
-          <div>ฝ่ายบุคคล</div>
-        </div>
-        <div class="sign-box">
-          <div class="sign-slot"></div>
-          <div class="sign-line">ลงชื่อพนักงานผู้รับทราบ</div>
-          <div>${emp.firstName} ${emp.lastName}</div>
-        </div>
-      </div>
-
-      <div class="ack">
-        ข้าพเจ้าได้รับทราบหนังสือเตือนฉบับนี้แล้ว &nbsp;&nbsp; วันที่ ............/............/............
-      </div>
-
-      <scr` + `ipt>window.onload = function(){ setTimeout(function(){ window.print(); }, 400); };</scr` + `ipt>
-    </body></html>
-  `);
+      <${S}>
+        function downloadPDF() {
+          var el = document.getElementById('warn-page');
+          var wrap = el.parentElement;
+          var prev = { minHeight: el.style.minHeight, boxShadow: el.style.boxShadow, margin: el.style.margin };
+          var prevWrap = { padding: wrap.style.padding, justifyContent: wrap.style.justifyContent, display: wrap.style.display };
+          var prevBodyBg = document.body.style.background;
+          el.style.minHeight = 'auto';
+          el.style.boxShadow = 'none';
+          el.style.margin = '0';
+          wrap.style.padding = '0';
+          wrap.style.display = 'block';
+          document.body.style.background = '#fff';
+          window.scrollTo(0, 0);
+          var opt = {
+            margin: 0,
+            filename: '${fileName}.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+          };
+          var restore = function() {
+            el.style.minHeight = prev.minHeight;
+            el.style.boxShadow = prev.boxShadow;
+            el.style.margin = prev.margin;
+            wrap.style.padding = prevWrap.padding;
+            wrap.style.justifyContent = prevWrap.justifyContent;
+            wrap.style.display = prevWrap.display;
+            document.body.style.background = prevBodyBg;
+          };
+          if (window.html2pdf) {
+            window.html2pdf().set(opt).from(el).save().then(restore).catch(restore);
+          } else {
+            restore();
+            alert('กำลังโหลดตัวสร้าง PDF กรุณาลองใหม่อีกครั้ง');
+          }
+        }
+      </${S}>
+    </body></html>`);
   win.document.close();
 };
 
 const WarningPage = () => {
   const { employees, settings, setSettings, branches, user, attendance, addToast } = useApp();
   const [tab, setTab] = useState('alerts');   // alerts | issued
+  const [openCustom, setOpenCustom] = useState(false);
 
   const me = employees.find(e => e.id === user.empId);
   const myScope = me?.approvalScope || (me?.canApprove ? 'manager' : 'none');
@@ -5378,6 +5455,30 @@ const WarningPage = () => {
     addToast('success', 'ออกใบเตือนแล้ว — พนักงานจะเห็นในระบบของตนเอง');
   };
 
+  // สร้างใบเตือนเอง (กรณีอื่นนอกจากมาสาย)
+  const issueCustomWarning = async (data) => {
+    const emp = employees.find(e => e.id === data.employeeId);
+    if (!emp) { addToast('error', 'ไม่พบพนักงาน'); return; }
+    const w = {
+      id: `WARN${Date.now()}`,
+      type: 'custom',
+      employeeId: emp.id,
+      employeeName: `${emp.firstName} ${emp.lastName}`,
+      branchId: emp.branchId,
+      subject: data.subject,
+      detail: data.detail || '',
+      reason: data.subject,
+      note: data.note || '',
+      status: 'issued',
+      createdAt: new Date().toISOString(),
+      approvedAt: new Date().toISOString(),
+      approvedBy: me ? `${me.firstName} ${me.lastName}` : user.username,
+    };
+    await saveList([...warnings, w]);
+    setOpenCustom(false);
+    addToast('success', 'ออกใบเตือนแล้ว — พนักงานจะเห็นในระบบของตนเอง');
+  };
+
   const deleteWarning = async (id) => {
     if (!confirm('ลบใบเตือนนี้?')) return;
     await saveList(warnings.filter(w => w.id !== id));
@@ -5389,6 +5490,7 @@ const WarningPage = () => {
       <Topbar
         title="ใบเตือน / จัดการวินัย"
         subtitle={`ระบบแจ้งเตือนอัตโนมัติเมื่อพนักงานมาสายตั้งแต่ ${threshold} ครั้ง/เดือน`}
+        action={<Button icon="plus" onClick={() => setOpenCustom(true)}>สร้างใบเตือนเอง</Button>}
       />
 
       {/* แท็บ */}
@@ -5497,7 +5599,102 @@ const WarningPage = () => {
           )}
         </Card>
       )}
+
+      <CustomWarningModal
+        open={openCustom}
+        onClose={() => setOpenCustom(false)}
+        onSave={issueCustomWarning}
+        employees={scopeEmps}
+        branches={branches}
+      />
     </div>
+  );
+};
+
+// Modal สร้างใบเตือนเอง (กรณีอื่นนอกจากมาสาย)
+const CustomWarningModal = ({ open, onClose, onSave, employees, branches }) => {
+  const [employeeId, setEmployeeId] = useState('');
+  const [branchFilter, setBranchFilter] = useState('all');
+  const [subject, setSubject] = useState('');
+  const [detail, setDetail] = useState('');
+  const [note, setNote] = useState('');
+
+  // reset เมื่อเปิด
+  useEffect(() => {
+    if (open) { setEmployeeId(''); setBranchFilter('all'); setSubject(''); setDetail(''); setNote(''); }
+  }, [open]);
+
+  const empOptions = employees.filter(e =>
+    branchFilter === 'all' || e.branchId === branchFilter
+  ).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  // หัวข้อสำเร็จรูปให้เลือกเร็ว
+  const presets = [
+    'ขาดงานโดยไม่แจ้งล่วงหน้า',
+    'ละทิ้งหน้าที่ระหว่างเวลางาน',
+    'ไม่ปฏิบัติตามระเบียบบริษัท',
+    'ประพฤติตนไม่เหมาะสม',
+    'ทำงานผิดพลาด/บกพร่องต่อหน้าที่',
+  ];
+
+  const handleSave = () => {
+    if (!employeeId) { alert('กรุณาเลือกพนักงาน'); return; }
+    if (!subject.trim()) { alert('กรุณาระบุเรื่อง/สาเหตุ'); return; }
+    onSave({ employeeId, subject: subject.trim(), detail: detail.trim(), note: note.trim() });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="สร้างใบเตือนเอง">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+            <Select value={branchFilter} onChange={(e) => { setBranchFilter(e.target.value); setEmployeeId(''); }}>
+              <option value="all">ทุกสาขา</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">พนักงาน <span className="text-red-500">*</span></label>
+            <Select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+              <option value="">— เลือก —</option>
+              {empOptions.map(e => (
+                <option key={e.id} value={e.id}>{e.id} · {e.firstName} {e.lastName}</option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">เรื่อง / สาเหตุ <span className="text-red-500">*</span></label>
+          <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="เช่น ขาดงานโดยไม่แจ้งล่วงหน้า" />
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {presets.map(p => (
+              <button key={p} onClick={() => setSubject(p)}
+                className="text-xs px-2.5 py-1 rounded-full bg-ink-50 text-ink-600 hover:bg-flow-50 hover:text-flow-700 border border-ink-100">
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">รายละเอียดเพิ่มเติม</label>
+          <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} rows={3}
+            placeholder="อธิบายเหตุการณ์/พฤติกรรมที่พบ (ไม่บังคับ)" />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">หมายเหตุ</label>
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="หมายเหตุเพิ่มเติม (ไม่บังคับ)" />
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button variant="outline" onClick={onClose} className="flex-1">ยกเลิก</Button>
+          <Button icon="file" onClick={handleSave} className="flex-1">ออกใบเตือน</Button>
+        </div>
+      </div>
+    </Modal>
   );
 };
 
