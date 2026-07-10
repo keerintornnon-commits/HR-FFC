@@ -710,9 +710,9 @@ const api = {
         d.setMonth(d.getMonth() - n);
         return d.toISOString().slice(0, 10);   // YYYY-MM-DD
       };
-      const attFrom = params.attFrom || monthsBack(3);    // attendance 3 เดือนล่าสุด
+      const attFrom = params.attFrom || monthsBack(2);    // attendance 2 เดือนล่าสุด (ประหยัด Egress; ย้อนหลังโหลดเพิ่มผ่าน getRange)
       const leaveFrom = params.leaveFrom || monthsBack(13); // leaves ~1 ปีกว่า (ครอบคลุมโควต้าปีนี้)
-      const payFrom = params.payFrom || monthsBack(6);     // payroll 6 เดือนล่าสุด
+      const payFrom = params.payFrom || monthsBack(3);     // payroll 3 เดือนล่าสุด
 
       // ดึงทุกตารางขนาน → map กลับเป็น camelCase
       const [employees, attendance, leaves, leaveTypes, branches, departments,
@@ -6170,12 +6170,13 @@ const LeavesPage = () => {
 };
 
 const LeaveExportModal = ({ open, onClose, employees, leaves, leaveTypes, branches, user, addToast }) => {
-  const [scope, setScope] = useState('branch');   // branch | person
+  const [scope, setScope] = useState('branch');   // branch | person | quota
   const [branchId, setBranchId] = useState('all');
   const [empId, setEmpId] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // all | approved | pending | rejected
+  const [quotaYear, setQuotaYear] = useState(String(new Date().getFullYear()));
 
   // ขอบเขตสิทธิ์: manager/regional เห็นเฉพาะสาขาตัวเอง
   const me = employees.find(e => e.id === user.empId);
@@ -6200,6 +6201,63 @@ const LeaveExportModal = ({ open, onClose, employees, leaves, leaveTypes, branch
     if (l.leavePeriod === 'afternoon') return 'ครึ่งบ่าย';
     if (l.leavePeriod === 'hours') return l.leaveHours ? `${l.leaveHours} ชม.` : 'รายชั่วโมง';
     return 'เต็มวัน';
+  };
+
+  // ── ส่งออกสิทธิ์วันลาคงเหลือของทุกคน (ตามสาขาที่เลือก) ──
+  const exportQuota = () => {
+    const emps = employees.filter(e => {
+      if (e.status === 'inactive') return false;
+      if (!canAll && e.branchId !== lockedBranch) return false;
+      if (branchId !== 'all' && e.branchId !== branchId) return false;
+      return true;
+    }).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+    if (emps.length === 0) { addToast('error', 'ไม่มีพนักงานตามเงื่อนไขที่เลือก'); return; }
+
+    const types = leaveTypes || [];
+    const header1 = ['รหัส', 'ชื่อ-นามสกุล', 'สาขา'];
+    const header2 = ['', '', ''];
+    types.forEach(t => {
+      header1.push(t.label, '', '');
+      header2.push('ใช้ไป', 'สิทธิ์', 'คงเหลือ');
+    });
+
+    const data = emps.map(e => {
+      const quota = calcQuota(e, types, leaves, quotaYear);
+      const row = [
+        e.id,
+        `${e.firstName || ''} ${e.lastName || ''}`.trim(),
+        bName(e.branchId),
+      ];
+      quota.forEach(q => {
+        if (q.noQuota) row.push('-', '-', '-');
+        else row.push(q.used, q.max, q.remaining);
+      });
+      return row;
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([header1, header2, ...data]);
+    const merges = [
+      { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } },
+      { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
+      { s: { r: 0, c: 2 }, e: { r: 1, c: 2 } },
+    ];
+    types.forEach((t, i) => {
+      const c = 3 + i * 3;
+      merges.push({ s: { r: 0, c }, e: { r: 0, c: c + 2 } });
+    });
+    ws['!merges'] = merges;
+    const cols = [{ wch: 10 }, { wch: 20 }, { wch: 16 }];
+    types.forEach(() => { cols.push({ wch: 7 }, { wch: 7 }, { wch: 8 }); });
+    ws['!cols'] = cols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `สิทธิ์วันลา ${quotaYear}`);
+
+    const scopeName = branchId !== 'all' ? bName(branchId) : (!canAll ? bName(lockedBranch) : 'ทุกสาขา');
+    XLSX.writeFile(wb, `สิทธิ์วันลาคงเหลือ_${scopeName}_ปี${quotaYear}.xlsx`);
+    addToast('success', `ส่งออกสิทธิ์วันลา ${emps.length} คนเรียบร้อย`);
+    onClose();
   };
 
   const doExport = () => {
@@ -6292,21 +6350,50 @@ const LeaveExportModal = ({ open, onClose, employees, leaves, leaveTypes, branch
         {/* เลือกขอบเขต */}
         <div>
           <label className="block text-sm font-medium text-ink-700 mb-1.5">ส่งออกแบบ</label>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => setScope('branch')}
-              className={cls('flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all',
+              className={cls('px-3 py-2.5 rounded-lg text-sm font-medium border transition-all',
                 scope === 'branch' ? 'bg-flow-600 text-white border-flow-600' : 'bg-white text-ink-600 border-ink-200 hover:border-flow-300')}>
-              ตามภาค / สาขา
+              ตามภาค/สาขา
             </button>
             <button
               onClick={() => setScope('person')}
-              className={cls('flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-all',
+              className={cls('px-3 py-2.5 rounded-lg text-sm font-medium border transition-all',
                 scope === 'person' ? 'bg-flow-600 text-white border-flow-600' : 'bg-white text-ink-600 border-ink-200 hover:border-flow-300')}>
               รายบุคคล
             </button>
+            <button
+              onClick={() => setScope('quota')}
+              className={cls('px-3 py-2.5 rounded-lg text-sm font-medium border transition-all',
+                scope === 'quota' ? 'bg-flow-600 text-white border-flow-600' : 'bg-white text-ink-600 border-ink-200 hover:border-flow-300')}>
+              สิทธิ์คงเหลือ
+            </button>
           </div>
         </div>
+
+        {/* โหมดสิทธิ์คงเหลือ: เลือกสาขา + ปี */}
+        {scope === 'quota' && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ภาค / สาขา</label>
+              <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+                {canAll && <option value="all">ทุกสาขา</option>}
+                {branchOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ปี (ค.ศ.)</label>
+              <Select value={quotaYear} onChange={(e) => setQuotaYear(e.target.value)}>
+                {[0, 1, 2].map(i => {
+                  const y = new Date().getFullYear() - i;
+                  return <option key={y} value={String(y)}>{y} (พ.ศ. {y + 543})</option>;
+                })}
+              </Select>
+            </div>
+            <p className="text-xs text-ink-400">ส่งออกสรุปสิทธิ์วันลาของพนักงานทุกคน (ใช้ไป / สิทธิ์ / คงเหลือ) แยกตามประเภทการลา</p>
+          </>
+        )}
 
         {/* เลือกสาขา */}
         {scope === 'branch' && (
@@ -6344,6 +6431,7 @@ const LeaveExportModal = ({ open, onClose, employees, leaves, leaveTypes, branch
         )}
 
         {/* ช่วงวันที่ */}
+        {scope !== 'quota' && (
         <div>
           <label className="block text-sm font-medium text-ink-700 mb-1.5">ช่วงวันที่ (ไม่บังคับ)</label>
           <div className="grid grid-cols-2 gap-3">
@@ -6358,8 +6446,10 @@ const LeaveExportModal = ({ open, onClose, employees, leaves, leaveTypes, branch
           </div>
           <p className="text-xs text-ink-400 mt-1.5">เว้นว่างไว้ = ส่งออกทั้งหมด</p>
         </div>
+        )}
 
         {/* สถานะ */}
+        {scope !== 'quota' && (
         <div>
           <label className="block text-sm font-medium text-ink-700 mb-1.5">สถานะ</label>
           <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -6369,10 +6459,11 @@ const LeaveExportModal = ({ open, onClose, employees, leaves, leaveTypes, branch
             <option value="rejected">ปฏิเสธ</option>
           </Select>
         </div>
+        )}
 
         <div className="flex gap-2 pt-2">
           <Button variant="outline" onClick={onClose} className="flex-1">ยกเลิก</Button>
-          <Button icon="download" onClick={doExport} className="flex-1">ส่งออก Excel</Button>
+          <Button icon="download" onClick={scope === 'quota' ? exportQuota : doExport} className="flex-1">ส่งออก Excel</Button>
         </div>
       </div>
     </Modal>
@@ -13571,11 +13662,14 @@ const App = () => {
 
       // 1) โหลดจาก cache ก่อน (แสดงทันที ไม่ต้องรอเน็ต)
       let hadCache = false;
+      let cacheFresh = false;   // cache ยังสด (< TTL) → ข้ามการยิง API เพื่อประหยัด Egress
+      const CACHE_TTL_MS = 10 * 60 * 1000;   // 10 นาที
       try {
         // cache version — เปลี่ยนเลขนี้เมื่อโครงสร้างข้อมูลเปลี่ยน เพื่อล้าง cache เก่าที่ format ผิด
         const CACHE_VER = 'v2-date-normalize';
         if (localStorage.getItem('ffc_cache_ver') !== CACHE_VER) {
           localStorage.removeItem('ffc_data_cache');
+          localStorage.removeItem('ffc_cache_time');
           localStorage.setItem('ffc_cache_ver', CACHE_VER);
         }
         const cached = localStorage.getItem('ffc_data_cache');
@@ -13583,27 +13677,40 @@ const App = () => {
           applyData(JSON.parse(cached));
           hadCache = true;
           setLoading(false);  // มี cache แล้ว ไม่ต้องโชว์ loading
+          // เช็คว่า cache ยังสดไหม
+          const cacheTime = Number(localStorage.getItem('ffc_cache_time') || 0);
+          if (cacheTime && (Date.now() - cacheTime) < CACHE_TTL_MS) {
+            cacheFresh = true;
+          }
         }
       } catch {}
 
       // 2) ซิงค์ข้อมูลจริงเบื้องหลัง แล้วอัปเดต + cache
-      (async () => {
-        try {
-          const data = await api.get('getAll');
-          applyData(data);
-          try { localStorage.setItem('ffc_data_cache', JSON.stringify(data)); } catch {}
-        } catch (err) {
-          if (!hadCache) {
-            setToast({ type: 'error', message: 'เชื่อมต่อ Supabase ล้มเหลว: ' + err.message });
-            const emps = seedEmployees();
-            setEmployees(emps);
-            setAttendance(seedAttendance(emps));
-            setLeaves(seedLeaves(emps));
+      //    ถ้า cache ยังสด (เปิดแอปซ้ำภายใน 10 นาที) → ข้าม เพื่อประหยัด Egress
+      if (cacheFresh) {
+        setLoading(false);
+      } else {
+        (async () => {
+          try {
+            const data = await api.get('getAll');
+            applyData(data);
+            try {
+              localStorage.setItem('ffc_data_cache', JSON.stringify(data));
+              localStorage.setItem('ffc_cache_time', String(Date.now()));
+            } catch {}
+          } catch (err) {
+            if (!hadCache) {
+              setToast({ type: 'error', message: 'เชื่อมต่อ Supabase ล้มเหลว: ' + err.message });
+              const emps = seedEmployees();
+              setEmployees(emps);
+              setAttendance(seedAttendance(emps));
+              setLeaves(seedLeaves(emps));
+            }
+          } finally {
+            setLoading(false);
           }
-        } finally {
-          setLoading(false);
-        }
-      })();
+        })();
+      }
     } else {
       // โหมด Demo
       const emps = seedEmployees();
@@ -13671,7 +13778,10 @@ const App = () => {
       if (data.kpiCriteria?.length) setKpiCriteria(data.kpiCriteria);
       if (data.kpiRecords?.length) setKpiRecords(data.kpiRecords);
       if (data.settings && Object.keys(data.settings).length) setSettings(s => ({ ...s, ...data.settings }));
-      try { localStorage.setItem('ffc_data_cache', JSON.stringify(data)); } catch {}
+      try {
+        localStorage.setItem('ffc_data_cache', JSON.stringify(data));
+        localStorage.setItem('ffc_cache_time', String(Date.now()));
+      } catch {}
       addToast('success', 'อัปเดตข้อมูลล่าสุดแล้ว');
     } catch (err) {
       addToast('error', 'ซิงค์ไม่สำเร็จ: ' + err.message);
