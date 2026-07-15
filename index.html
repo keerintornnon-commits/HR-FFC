@@ -740,6 +740,8 @@ const api = {
         otRequests:    settings.otRequests || company.otRequests || [],
         warnings:      settings.warnings || company.warnings || [],
         warningConfig: settings.warningConfig || company.warningConfig || { lateThreshold: 6 },
+        shifts:        settings.shifts || company.shifts || [],
+        shifts:        settings.shifts || company.shifts || [],
       };
       return {
         employees:   (employees || []).map(r => fromDb('employees', r)),
@@ -1240,6 +1242,25 @@ const attStatusInfo = (status, leaveType, leaveTypes, opts) => {
 // ===== เงินเดือน: helper ส่วนกลาง =====
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const fmtMoney = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// หากะของพนักงานในวันที่กำหนด (YYYY-MM-DD) จาก settings.shifts
+// shift object: { id, employeeId, date, startTime, endTime, branchId, note }
+const findShift = (empId, dateStr, shifts) => {
+  if (!empId || !dateStr || !shifts) return null;
+  const ymd = String(dateStr).slice(0, 10);
+  return (shifts || []).find(s => s.employeeId === empId && String(s.date).slice(0, 10) === ymd) || null;
+};
+
+// เช็คว่าวันนั้นเป็น "วันหยุดประจำสัปดาห์" ของสาขานั้นไหม
+// - ภาคเหนือ (NRT): ทำงาน จันทร์–ศุกร์ → หยุดเสาร์(6)+อาทิตย์(0)
+// - สาขาอื่น: ทำงาน จันทร์–เสาร์ → หยุดเฉพาะอาทิตย์(0)
+const isWeeklyDayOff = (dateStr, branchId) => {
+  const d = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d)) return false;
+  const dow = d.getDay();   // 0=อา 6=ส
+  if (branchId === 'NRT') return dow === 0 || dow === 6;
+  return dow === 0;
+};
 
 // คำนวณค่าปรับมาสายตามช่วงเวลาเข้างานจริง (ไม่บวกสะสม — แต่ละช่วงคิดเรทเดียว)
 // 08:06-08:15 = 20 · 08:16-09:00 = 50 · 09:01-10:00 = 100 · 10:01-11:00 = 150 · หลัง 11:00 = 150 (เพดาน)
@@ -1784,6 +1805,7 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
     { id: 'checkin',    label: 'เช็คอิน-เอาท์',     icon: 'map' },
     { id: 'employees',  label: 'พนักงาน',          icon: 'users' },
     { id: 'attendance', label: 'การเข้า-ออกงาน',   icon: 'fingerprint' },
+    { id: 'shifts',     label: 'จัดกะ',             icon: 'calendar' },
     { id: 'leaves',     label: 'การลา',            icon: 'calendar' },
     { id: 'ot',         label: 'ขอ OT',            icon: 'clock' },
     { id: 'warnings',   label: 'ใบเตือน',          icon: 'info' },
@@ -1806,7 +1828,7 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
     if (user.role === 'employee') {
       // ผู้จัดการภาค (regional) เห็นเพิ่ม: การเข้า-ออกงาน + การประเมิน KPI
       if (isRegionalManager) {
-        return ['dashboard','checkin','employees','attendance','leaves','ot','warnings','calendar','kpi','expenses','policies','myinfo'].includes(m.id);
+        return ['dashboard','checkin','employees','attendance','shifts','leaves','ot','warnings','calendar','kpi','expenses','policies','myinfo'].includes(m.id);
       }
       return ['dashboard','checkin','leaves','ot','calendar','expenses','policies','myinfo'].includes(m.id);
     }
@@ -2215,10 +2237,12 @@ const Dashboard = ({ }) => {
     const dayLeaveEmpIds = new Set(dayLeaves.map(l => l.employeeId));
 
     // ขาดงาน = มีข้อมูลสแกน แต่ไม่มา + ไม่ลา (หรือ มี leave type absent)
+    // ข้ามคนที่วันนั้นเป็นวันหยุดประจำสัปดาห์ของสาขา (NRT หยุด ส-อา, อื่นๆ หยุดอาทิตย์)
     let absentList = [];
     if (dayAtt.length > 0) {
       absentList = activeEmps.filter(e =>
-        !dayAttEmpIds.has(e.id) && !dayLeaveEmpIds.has(e.id)
+        !dayAttEmpIds.has(e.id) && !dayLeaveEmpIds.has(e.id) &&
+        !isWeeklyDayOff(selectedDate, e.branchId)
       ).map(e => ({ employeeId: e.id, type: 'absent' }));
     }
     // รวม leave type = absent ด้วย
@@ -3233,6 +3257,9 @@ const EmployeeProfileModal = ({ employee, onClose, attendance, leaves, leaveType
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <Badge color={info.color}>{info.label}</Badge>
+                            {(att.source === 'shift' || att.shiftId) && (
+                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">เข้ากะ</span>
+                            )}
                             {sickCert && (
                               <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
                                 <Icon name="file" className="w-2.5 h-2.5" /> ใบรับรองแพทย์
@@ -3429,7 +3456,7 @@ const ExportWorkModal = ({ open, onClose, employee, attendance, leaves, leaveTyp
       XLSXlib.utils.book_append_sheet(wb, ws1, 'สรุป');
 
       // Sheet 2: ประวัติการเข้างาน
-      const attHeader = ['วันที่', 'เข้างาน', 'ออกงาน', 'สถานะ', 'ใบรับรองแพทย์', 'ยอดหัก', 'หมายเหตุ'];
+      const attHeader = ['วันที่', 'เข้างาน', 'ออกงาน', 'สถานะ', 'เข้ากะ', 'ใบรับรองแพทย์', 'ยอดหัก', 'หมายเหตุ'];
       const attRows = attInRange.map(a => {
         const info = attStatusInfo(a.status, a.leaveType, leaveTypes, { leavePeriod: a.leavePeriod, leaveHours: a.leaveHours });
         // เช็คว่าวันนี้มีลาป่วยที่มีใบรับรองแพทย์ไหม
@@ -3440,10 +3467,11 @@ const ExportWorkModal = ({ open, onClose, employee, attendance, leaves, leaveTyp
         const certText = hasCert ? 'มีใบรับรองแพทย์' : '';
         const ded = recordDeduct(emp, a, leavesInRange, leaveTypes);
         const dedText = ded.amount > 0 ? ded.amount : '-';
-        return [toYMD(a.date), a.checkIn || '-', a.checkOut || '-', info.label, certText, dedText, a.leaveType ? (leaveTypes.find(t => t.id === a.leaveType)?.label || '') : ''];
+        const shiftText = (a.source === 'shift' || a.shiftId) ? 'เข้ากะ' : '';
+        return [toYMD(a.date), a.checkIn || '-', a.checkOut || '-', info.label, shiftText, certText, dedText, a.leaveType ? (leaveTypes.find(t => t.id === a.leaveType)?.label || '') : ''];
       });
       const ws2 = XLSXlib.utils.aoa_to_sheet([attHeader, ...attRows]);
-      ws2['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 20 }];
+      ws2['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 16 }, { wch: 10 }, { wch: 20 }];
       XLSXlib.utils.book_append_sheet(wb, ws2, 'การเข้างาน');
 
       // Sheet 3: ประวัติการลา
@@ -4006,6 +4034,234 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
 /* =============================================================
    ATTENDANCE PAGE
    ============================================================= */
+/* ═══════════════════════════════════════════════════════════
+   SHIFTS — จัดกะ (ระบุวัน/เวลาเข้ากะรายคน) 
+   วันมีกะ: เช็คอินได้ทุกที่ + ไม่คิดสาย
+═══════════════════════════════════════════════════════════ */
+const ShiftsPage = () => {
+  const { employees, settings, setSettings, branches, user, addToast } = useApp();
+  const me = employees.find(e => e.id === user.empId);
+  const canAll = user.role === 'admin' || user.role === 'hr';
+  const lockedBranch = !canAll ? (user.branchId || me?.branchId) : null;
+
+  const shifts = (settings && settings.shifts) || [];
+
+  // สาขาที่จัดได้
+  const branchOptions = canAll ? branches : branches.filter(b => b.id === lockedBranch);
+  const [branchId, setBranchId] = useState(canAll ? (branches[0]?.id || 'all') : lockedBranch);
+
+  // สัปดาห์ที่แสดง (เริ่มวันจันทร์)
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date();
+    const day = d.getDay();               // 0=อา 1=จ ...
+    const diff = day === 0 ? -6 : 1 - day; // เลื่อนไปวันจันทร์
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+  const TH_DAY_SHORT = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  // พนักงานในสาขา
+  const emps = employees.filter(e => {
+    if (e.status === 'inactive') return false;
+    return e.branchId === branchId;
+  }).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  // modal เพิ่ม/แก้กะ
+  const [editCell, setEditCell] = useState(null); // { emp, date, existing }
+
+  const saveList = async (list) => {
+    setSettings({ ...settings, shifts: list });
+    if (api.enabled()) {
+      try { await api.post('saveSettingsKey', { key: 'shifts', data: list }); }
+      catch (err) { addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message); }
+    }
+  };
+
+  const saveShift = async ({ startTime, endTime, note }) => {
+    const { emp, date, existing } = editCell;
+    const dateStr = ymd(date);
+    let list;
+    if (existing) {
+      list = shifts.map(s => s.id === existing.id ? { ...s, startTime, endTime, note } : s);
+    } else {
+      const w = {
+        id: `SHIFT${Date.now()}`,
+        employeeId: emp.id,
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        branchId: emp.branchId,
+        date: dateStr,
+        startTime, endTime, note: note || '',
+        createdBy: me ? `${me.firstName} ${me.lastName}` : user.username,
+        createdAt: new Date().toISOString(),
+      };
+      list = [...shifts, w];
+    }
+    await saveList(list);
+    setEditCell(null);
+    addToast('success', 'บันทึกกะแล้ว');
+  };
+
+  const removeShift = async () => {
+    if (!editCell?.existing) return;
+    await saveList(shifts.filter(s => s.id !== editCell.existing.id));
+    setEditCell(null);
+    addToast('success', 'ลบกะแล้ว');
+  };
+
+  const shiftAt = (empId, date) => shifts.find(s => s.employeeId === empId && String(s.date).slice(0, 10) === ymd(date));
+
+  const shiftWeek = (delta) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + delta * 7);
+    setWeekStart(d);
+  };
+
+  const weekLabel = `${weekDays[0].getDate()} ${THAI_MONTHS[weekDays[0].getMonth()]} – ${weekDays[6].getDate()} ${THAI_MONTHS[weekDays[6].getMonth()]} ${weekDays[6].getFullYear() + 543}`;
+
+  return (
+    <div className="p-8 space-y-6 animate-fade-up">
+      <Topbar title="จัดกะ" subtitle="กำหนดวัน-เวลาเข้ากะรายคน · วันมีกะเช็คอินได้ทุกที่และไม่คิดสาย" />
+
+      {/* ตัวเลือกสาขา + สัปดาห์ */}
+      <Card className="p-4">
+        <div className="flex items-center gap-3 flex-wrap justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-ink-700">สาขา:</span>
+            <div className="w-48">
+              <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+                {branchOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </Select>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => shiftWeek(-1)} className="px-3 py-1.5 rounded-lg bg-ink-50 hover:bg-ink-100 text-ink-600 text-sm">‹ ก่อนหน้า</button>
+            <span className="text-sm font-medium text-ink-800 min-w-[220px] text-center">{weekLabel}</span>
+            <button onClick={() => shiftWeek(1)} className="px-3 py-1.5 rounded-lg bg-ink-50 hover:bg-ink-100 text-ink-600 text-sm">ถัดไป ›</button>
+          </div>
+        </div>
+      </Card>
+
+      {/* ตารางกะ */}
+      <Card className="overflow-hidden">
+        {emps.length === 0 ? (
+          <Empty icon="users" title="ไม่มีพนักงานในสาขานี้" desc="เลือกสาขาอื่น หรือเพิ่มพนักงานก่อน" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-ink-50 text-ink-600 text-xs">
+                  <th className="px-3 py-3 text-left font-medium sticky left-0 bg-ink-50 min-w-[160px]">พนักงาน</th>
+                  {weekDays.map((d, i) => {
+                    const isToday = ymd(d) === ymd(new Date());
+                    return (
+                      <th key={i} className={cls('px-2 py-3 text-center font-medium min-w-[92px]', isToday && 'bg-brand-50 text-brand-700')}>
+                        {TH_DAY_SHORT[d.getDay()]}<br /><span className="text-ink-400 font-normal">{d.getDate()}/{d.getMonth() + 1}</span>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100">
+                {emps.map(emp => (
+                  <tr key={emp.id} className="hover:bg-ink-50/40">
+                    <td className="px-3 py-2 sticky left-0 bg-white">
+                      <div className="font-medium text-ink-900">{emp.firstName} {emp.lastName}</div>
+                      <div className="text-xs text-ink-400">{emp.id}</div>
+                    </td>
+                    {weekDays.map((d, i) => {
+                      const sh = shiftAt(emp.id, d);
+                      return (
+                        <td key={i} className="px-1.5 py-2 text-center">
+                          <button
+                            onClick={() => setEditCell({ emp, date: d, existing: sh || null })}
+                            className={cls('w-full rounded-lg px-1.5 py-1.5 text-xs transition-all',
+                              sh ? 'bg-purple-100 text-purple-700 hover:bg-purple-200 font-medium'
+                                 : 'bg-ink-50 text-ink-300 hover:bg-flow-50 hover:text-flow-500')}>
+                            {sh ? `${sh.startTime}-${sh.endTime}` : '+'}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <p className="text-xs text-ink-400">💡 คลิกช่องวันเพื่อเพิ่ม/แก้กะ · ช่องสีม่วง = มีกะแล้ว · พนักงานจะเห็นกะในหน้าเช็คอินและลงเวลาได้ทุกที่ในวันนั้น</p>
+
+      {editCell && (
+        <ShiftEditModal
+          cell={editCell}
+          onClose={() => setEditCell(null)}
+          onSave={saveShift}
+          onRemove={removeShift}
+        />
+      )}
+    </div>
+  );
+};
+
+const ShiftEditModal = ({ cell, onClose, onSave, onRemove }) => {
+  const { emp, date, existing } = cell;
+  const [startTime, setStartTime] = useState(existing?.startTime || '08:00');
+  const [endTime, setEndTime] = useState(existing?.endTime || '17:00');
+  const [note, setNote] = useState(existing?.note || '');
+
+  const TH_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+  const dateLabel = `วัน${TH_DAYS[date.getDay()]}ที่ ${date.getDate()} ${THAI_MONTHS[date.getMonth()]} ${date.getFullYear() + 543}`;
+
+  const handleSave = () => {
+    if (!startTime || !endTime) { alert('กรุณาระบุเวลาเริ่มและเลิกกะ'); return; }
+    onSave({ startTime, endTime, note: note.trim() });
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} title={existing ? 'แก้ไขกะ' : 'เพิ่มกะ'}>
+      <div className="space-y-4">
+        <div className="bg-ink-50 rounded-lg px-4 py-3">
+          <div className="font-medium text-ink-900">{emp.firstName} {emp.lastName}</div>
+          <div className="text-sm text-ink-500">{dateLabel}</div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">เวลาเริ่มกะ</label>
+            <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">เวลาเลิกกะ</label>
+            <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">หมายเหตุ</label>
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น กะดึก, สาขาชั่วคราว (ไม่บังคับ)" />
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          {existing && (
+            <Button variant="outline" onClick={onRemove} className="text-red-600 border-red-200 hover:bg-red-50">ลบกะ</Button>
+          )}
+          <Button variant="outline" onClick={onClose} className="flex-1">ยกเลิก</Button>
+          <Button icon="check" onClick={handleSave} className="flex-1">บันทึก</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 const AttendancePage = () => {
   const { employees, attendance, setAttendance, branches, leaves, leaveTypes, addToast, user, settings } = useApp();
   const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
@@ -4178,6 +4434,9 @@ const AttendancePage = () => {
                     <td className="px-5 py-3 text-ink-700">{hours}</td>
                     <td className="px-5 py-3">
                       <Badge color={info.color}>{info.label}</Badge>
+                      {(att.source === 'shift' || att.shiftId) && (
+                        <span className="ml-1.5 inline-block text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">เข้ากะ</span>
+                      )}
                     </td>
                     <td className="px-5 py-3">
                       <span className="inline-flex items-center gap-1.5 text-xs text-ink-500">
@@ -4640,10 +4899,10 @@ const UploadAttendanceModal = ({ open, onClose, onImport, employees, settings, l
               leavePeriod = matchLeave.period || 'full';
               leaveHours = matchLeave.hours || null;
             } else {
-              // เช็ควันอาทิตย์ — ไม่ใช่วันทำงาน ไม่นับขาดงาน
-              const dObj = new Date(normDate + 'T00:00:00');
-              if (!isNaN(dObj) && dObj.getDay() === 0) {
-                status = 'holiday';   // วันหยุด (อาทิตย์)
+              // เช็ควันหยุดประจำสัปดาห์ตามสาขา (NRT หยุด ส-อา, อื่นๆ หยุดอาทิตย์) — ไม่นับขาดงาน
+              const empBranch = (employees.find(e => e.id === empId) || {}).branchId;
+              if (isWeeklyDayOff(normDate, empBranch)) {
+                status = 'holiday';   // วันหยุดประจำสัปดาห์
               } else {
                 status = 'absent';
               }
@@ -7791,11 +8050,15 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   const base = Number(emp.baseSalary) || 0;
   const special = Number(emp.specialAllowance) || 0;
 
-  // นับจำนวนวันในรอบ (ไม่รวมอาทิตย์) เพื่อ prorate เงินเดือนรายเดือน
+  // นับจำนวนวันทำงานในรอบ (ตัดวันหยุดประจำสัปดาห์ตามสาขา) เพื่อ prorate เงินเดือนรายเดือน
   const countWorkdays = (f, t) => {
     let n = 0;
     const d = new Date(f + 'T00:00:00'), end = new Date(t + 'T00:00:00');
-    while (d <= end) { if (d.getDay() !== 0) n++; d.setDate(d.getDate() + 1); }
+    while (d <= end) {
+      const ymd = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if (!isWeeklyDayOff(ymd, emp.branchId)) n++;
+      d.setDate(d.getDate() + 1);
+    }
     return n;
   };
   const rangeDays = countWorkdays(from, to);
@@ -7804,16 +8067,13 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   const perDay = salaryType === 'daily' ? base : salaryType === 'weekly' ? base / 6 : base / 30;
   const perHour = perDay / 8;
 
-  // เช็ควันอาทิตย์ (getDay()===0) — วันทำงานคือ จันทร์-เสาร์
-  const isSunday = (ymd) => {
-    const d = new Date(ymd + 'T00:00:00');
-    return !isNaN(d) && d.getDay() === 0;
-  };
+  // เช็ควันหยุดประจำสัปดาห์ตามสาขา (NRT: ส-อา, อื่นๆ: อาทิตย์)
+  const isDayOff = (ymd) => isWeeklyDayOff(ymd, emp.branchId);
   const inRange = (ymd) => ymd >= from && ymd <= to;
 
-  // กรองข้อมูลในช่วงวันที่ (ตัดวันอาทิตย์ออก — ไม่นับวันทำงาน/ไม่หัก)
-  const monthAtt = attendance.filter(a => a.employeeId === emp.id && inRange(toYMD(a.date)) && !isSunday(toYMD(a.date)));
-  const monthLeaves = leaves.filter(l => l.employeeId === emp.id && l.status === 'approved' && inRange(toYMD(l.startDate)) && !isSunday(toYMD(l.startDate)));
+  // กรองข้อมูลในช่วงวันที่ (ตัดวันหยุดประจำสัปดาห์ออก — ไม่นับวันทำงาน/ไม่หัก)
+  const monthAtt = attendance.filter(a => a.employeeId === emp.id && inRange(toYMD(a.date)) && !isDayOff(toYMD(a.date)));
+  const monthLeaves = leaves.filter(l => l.employeeId === emp.id && l.status === 'approved' && inRange(toYMD(l.startDate)) && !isDayOff(toYMD(l.startDate)));
 
   // ===== รายได้พื้นฐาน =====
   // นับวันมาทำงานจริง (ทุกประเภทเงินเดือน) — มาทำงาน/สาย/WFH/มาบางส่วน/ไม่สแกนออก
@@ -11365,7 +11625,7 @@ const printCertificate = (emp, settings, req, branches) => {
 /* ===== CHECK-IN CARD — เช็คอิน/เช็คเอาท์ด้วย GPS ===== */
 /* ===== CHECK-IN PAGE — หน้าเช็คอิน/เอาท์ (โมดูลแยก ดีไซน์ปุ่มวงกลม) ===== */
 const CheckInPage = () => {
-  const { employees, attendance, setAttendance, branches, addToast, user } = useApp();
+  const { employees, attendance, setAttendance, branches, addToast, user, settings } = useApp();
   const me = employees.find(e => e.id === user.empId);
   const [busy, setBusy] = useState(false);
   const [gpsMsg, setGpsMsg] = useState('');
@@ -11391,6 +11651,7 @@ const CheckInPage = () => {
   const today = new Date().toISOString().slice(0, 10);
   const branchList = (branches && branches.length) ? branches : DEFAULT_BRANCHES;
   const myBranch = branchList.find(b => b.id === me.branchId);
+  const todayShift = findShift(me.id, today, settings && settings.shifts);   // มีกะวันนี้ไหม
   const todayRec = attendance.find(a => a.employeeId === me.id && toYMD(a.date) === today);
   const hasCheckIn = todayRec && todayRec.checkIn;
   const hasCheckOut = todayRec && todayRec.checkOut;
@@ -11411,6 +11672,48 @@ const CheckInPage = () => {
   })();
 
   const doCheck = (mode) => {
+    // ── โหมดกะ: มีกะวันนี้ → เช็คอิน/เอาท์ได้ทุกที่ ไม่ต้องเช็ค GPS ──
+    if (todayShift) {
+      const finishShift = async (latitude, longitude, dist) => {
+        const n = new Date();
+        const hhmm = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+        const recId = todayRec?.id || `ATT_${me.id}_${today}`;
+        let rec;
+        if (mode === 'in') {
+          // กะไม่คิดสาย/ค่าปรับ → ontime เสมอ
+          rec = { ...(todayRec || {}), id: recId, employeeId: me.id, date: today, checkIn: hhmm, status: 'ontime', source: 'shift', shiftId: todayShift.id };
+        } else {
+          rec = { ...(todayRec || {}), id: recId, employeeId: me.id, date: today, checkOut: hhmm, source: todayRec?.source || 'shift', shiftId: todayShift.id };
+        }
+        setAttendance(prev => {
+          const idx = prev.findIndex(a => a.id === recId);
+          if (idx >= 0) { const copy = [...prev]; copy[idx] = rec; return copy; }
+          return [...prev, rec];
+        });
+        let saved = true;
+        if (api.enabled()) {
+          try { await api.post('saveAttendance', { data: rec }); }
+          catch (err) { saved = false; addToast('error', 'บันทึกลงฐานข้อมูลไม่สำเร็จ: ' + (err.message || err)); }
+        }
+        setBusy(false); setGpsMsg('');
+        if (saved) addToast('success', `${mode === 'in' ? 'เช็คอิน' : 'เช็คเอาท์'}สำเร็จ ${hhmm} (เข้ากะ ${todayShift.startTime}-${todayShift.endTime})`);
+      };
+      setBusy(true);
+      setGpsMsg('กำลังบันทึก (โหมดกะ)...');
+      // พยายามเก็บพิกัดไว้เป็นข้อมูล แต่ไม่บังคับว่าต้องอยู่ในเขต
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => finishShift(pos.coords.latitude, pos.coords.longitude, null),
+          ()    => finishShift(null, null, null),   // ดึงพิกัดไม่ได้ก็ยังบันทึกได้ (โหมดกะ)
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      } else {
+        finishShift(null, null, null);
+      }
+      return;
+    }
+
+    // ── โหมดปกติ: ไม่มีกะ → ต้องอยู่ในรัศมี GPS ของสาขา ──
     if (!myBranch || myBranch.lat == null || myBranch.lng == null) {
       addToast('error', 'สาขาของคุณยังไม่ได้ตั้งค่าพิกัด GPS — แจ้ง HR/admin'); return;
     }
@@ -11478,6 +11781,14 @@ const CheckInPage = () => {
             <div className="font-display text-4xl font-bold text-brand-700 tracking-wide">{clockStr}</div>
             <div className="text-sm text-flow-600 mt-1">{dateStr}</div>
           </div>
+
+          {/* ป้ายแจ้งว่าวันนี้เข้ากะ */}
+          {todayShift && (
+            <div className="mt-4 mx-auto max-w-xs bg-purple-50 border border-purple-200 rounded-xl px-4 py-2.5 text-center">
+              <div className="text-sm font-semibold text-purple-700">📅 วันนี้เข้ากะ {todayShift.startTime} – {todayShift.endTime}</div>
+              <div className="text-xs text-purple-500 mt-0.5">เช็คอิน-เอาท์ได้ทุกที่ (ไม่จำกัดพิกัดสาขา)</div>
+            </div>
+          )}
 
           {/* ปุ่มวงกลมใหญ่ */}
           <div className="flex justify-center my-8">
@@ -13885,6 +14196,7 @@ const App = () => {
           {page === 'checkin'    && <CheckInPage />}
           {page === 'employees'  && <EmployeesPage />}
           {page === 'attendance' && <AttendancePage />}
+          {page === 'shifts'     && <ShiftsPage />}
           {page === 'leaves'     && <LeavesPage />}
           {page === 'ot'         && <OTPage />}
           {page === 'warnings'   && <WarningPage />}
