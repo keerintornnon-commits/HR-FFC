@@ -8279,6 +8279,11 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
         // หา record เดิม (ถ้ามี) เพื่อคงค่าที่กรอกมือ
         const existId = `PAY_${empId}_${range.from}`;
         const old = existingPayroll.find(x => x.id === existId);
+        // รวมยอด OT ที่อนุมัติแล้วในรอบนี้ (วันที่ OT อยู่ในช่วง range)
+        const otTotal = ((settings && settings.otRequests) || [])
+          .filter(o => o.employeeId === empId && o.status === 'approved'
+            && toYMD(o.otDate) >= range.from && toYMD(o.otDate) <= range.to)
+          .reduce((s, o) => s + (Number(o.amount) || 0), 0);
         return {
           id: existId,
           employeeId: empId,
@@ -8287,7 +8292,10 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
           periodTo: range.to,
           payDate: payDate,
           baseSalary: r.baseSalary,
-          overtime: old?.overtime ?? '',
+          // ถ้ามีค่ากรอกมือเดิมใช้ค่าเดิม, ไม่งั้นเติม OT อนุมัติอัตโนมัติ
+          overtime: (old?.overtime !== undefined && old?.overtime !== '' && old?.overtime != null)
+            ? old.overtime
+            : (otTotal > 0 ? otTotal : ''),
           transport: old?.transport ?? '',
           bonus: old?.bonus ?? '',
           otherEarn: old?.otherEarn ?? (r.special || ''),
@@ -8303,6 +8311,7 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
             lateFine: r.lateFine, lateDetails: r.lateDetails,
             leaveDeduct: r.leaveDeduct, leaveDetails: r.leaveDetails,
             fullLeaveDates: r.fullLeaveDates, absentDays: r.absentDays,
+            otTotal,
           },
         };
       });
@@ -8428,6 +8437,7 @@ const PayrollPage = () => {
   const [editing, setEditing] = useState(null);
   const [slip, setSlip] = useState(null);
   const [selected, setSelected] = useState([]);   // id ที่เลือกพิมพ์รวม
+  const [filterBranch, setFilterBranch] = useState('all');   // กรองตามภาค/สาขา
   const [showSummary, setShowSummary] = useState(false);  // modal export สรุป
   const [showBankFile, setShowBankFile] = useState(false);  // modal export ไฟล์โอนเงิน
   const [showBatch, setShowBatch] = useState(false);  // modal คำนวณหลายคน
@@ -8449,6 +8459,11 @@ const PayrollPage = () => {
         const emp = employees.find(e => e.id === p.employeeId);
         if (!emp || emp.branchId !== user.branchId) return false;
       }
+      // กรองตามภาค/สาขา
+      if (filterBranch !== 'all') {
+        const emp = employees.find(e => e.id === p.employeeId);
+        if (!emp || emp.branchId !== filterBranch) return false;
+      }
       if (search) {
         const emp = employees.find(e => e.id === p.employeeId);
         const q = search.toLowerCase();
@@ -8456,7 +8471,7 @@ const PayrollPage = () => {
       }
       return true;
     });
-  }, [payroll, month, search, employees, user]);
+  }, [payroll, month, search, employees, user, filterBranch]);
 
   const stats = useMemo(() => {
     let totalNet = 0, totalEarn = 0, totalDeduct = 0;
@@ -8489,6 +8504,19 @@ const PayrollPage = () => {
     setPayroll(payroll.filter(p => p.id !== id));
     addToast('success', 'ลบเรียบร้อย');
     if (api.enabled()) api.post('deletePayroll', { id }).catch(() => {});
+  };
+
+  // ลบหลายรายการที่เลือก
+  const deleteSelected = () => {
+    if (selected.length === 0) { addToast('error', 'กรุณาเลือกรายการที่ต้องการลบ'); return; }
+    if (!confirm(`ยืนยันการลบข้อมูลเงินเดือน ${selected.length} รายการ?`)) return;
+    const idsToDelete = new Set(selected);
+    setPayroll(payroll.filter(p => !idsToDelete.has(p.id)));
+    addToast('success', `ลบ ${selected.length} รายการเรียบร้อย`);
+    if (api.enabled()) {
+      selected.forEach(id => api.post('deletePayroll', { id }).catch(() => {}));
+    }
+    setSelected([]);
   };
 
   // เลือก/ยกเลิกเลือกพิมพ์
@@ -8549,10 +8577,18 @@ const PayrollPage = () => {
 
       {/* Filter */}
       <Card className="p-4">
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs text-ink-500 mb-1">รอบเดือน</label>
             <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs text-ink-500 mb-1">ภาค / สาขา</label>
+            <Select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setSelected([]); }}
+              disabled={user.role === 'manager'}>
+              <option value="all">ทุกสาขา</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
           </div>
           <div className="md:col-span-2">
             <label className="block text-xs text-ink-500 mb-1">ค้นหา</label>
@@ -8583,9 +8619,17 @@ const PayrollPage = () => {
               <div className="text-sm text-ink-600">
                 {selected.length > 0 ? <span className="font-medium text-flow-700">เลือก {selected.length} คน</span> : 'เลือกพนักงานเพื่อพิมพ์สลิปหลายคนพร้อมกัน'}
               </div>
-              <Button size="sm" icon="download" onClick={printSelected} disabled={selected.length === 0}>
-                พิมพ์สลิป {selected.length > 0 ? `(${selected.length})` : 'ที่เลือก'}
-              </Button>
+              <div className="flex items-center gap-2">
+                {canEdit && selected.length > 0 && (
+                  <Button size="sm" variant="outline" icon="trash" onClick={deleteSelected}
+                    className="!text-red-600 !border-red-200 hover:!bg-red-50">
+                    ลบ ({selected.length})
+                  </Button>
+                )}
+                <Button size="sm" icon="download" onClick={printSelected} disabled={selected.length === 0}>
+                  พิมพ์สลิป {selected.length > 0 ? `(${selected.length})` : 'ที่เลือก'}
+                </Button>
+              </div>
             </div>
             <table className="w-full text-sm">
               <thead className="bg-ink-50 text-ink-600 text-left">
