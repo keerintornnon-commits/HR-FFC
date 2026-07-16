@@ -8431,7 +8431,7 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
 
 const PayrollPage = () => {
   const { payroll, setPayroll, employees, branches, attendance, leaves, leaveTypes, settings, user, addToast, loadHistory, historyLoaded } = useApp();
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [payToFilter, setPayToFilter] = useState('');   // ค้นหาด้วยวันสุดท้ายของรอบ (periodTo); ว่าง = ทุกรอบ
   const [search, setSearch] = useState('');
   const [openForm, setOpenForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -8446,15 +8446,18 @@ const PayrollPage = () => {
   const hasPayrollAccess = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
   const canEdit = hasPayrollAccess;
 
-  // ตรวจว่าเลือกเดือนเก่ากว่าข้อมูลที่โหลด (6 เดือนล่าสุด) ไหม
-  const sixMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 7); })();
-  const needHistory = month < sixMonthsAgo && !historyLoaded;
+  // ตรวจว่าค้นวันที่เก่ากว่าข้อมูลที่โหลด (6 เดือนล่าสุด) ไหม
+  const sixMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); })();
+  const needHistory = payToFilter && payToFilter < sixMonthsAgo && !historyLoaded;
 
-  // payroll ของเดือนที่เลือก (กรองด้วยเดือนของรอบ — รองรับทั้ง period เดิม และ periodFrom ใหม่)
+  // payroll — กรองด้วยวันสุดท้ายของรอบ (periodTo). ถ้าเว้นว่าง = แสดงทุกรอบ
   const monthRecords = useMemo(() => {
     return payroll.filter(p => {
-      const pMonth = p.periodFrom ? String(p.periodFrom).slice(0, 7) : p.period;
-      if (pMonth !== month) return false;
+      // กรองด้วยวันสุดท้ายของรอบ (periodTo) — ตรงวันที่เลือกพอดี
+      if (payToFilter) {
+        const pTo = p.periodTo ? toYMD(p.periodTo) : (p.period ? null : null);
+        if (pTo !== payToFilter) return false;
+      }
       if (user.role === 'manager') {
         const emp = employees.find(e => e.id === p.employeeId);
         if (!emp || emp.branchId !== user.branchId) return false;
@@ -8471,7 +8474,7 @@ const PayrollPage = () => {
       }
       return true;
     });
-  }, [payroll, month, search, employees, user, filterBranch]);
+  }, [payroll, payToFilter, search, employees, user, filterBranch]);
 
   const stats = useMemo(() => {
     let totalNet = 0, totalEarn = 0, totalDeduct = 0;
@@ -8529,14 +8532,19 @@ const PayrollPage = () => {
     printManySlips(recs, employees, branches, settings);
   };
 
-  const [my, mm] = month.split('-');
-  const monthLabel = `${THAI_MONTHS[parseInt(mm,10)-1]} ${parseInt(my,10)+543}`;
+  // เดือนสำหรับส่งให้ modal ย่อย (ฟอร์มเพิ่ม/Export/ไฟล์โอน) — ใช้เดือนของวันที่ค้นหา หรือเดือนปัจจุบัน
+  const derivedMonth = payToFilter ? payToFilter.slice(0, 7) : new Date().toISOString().slice(0, 7);
+
+  // label แสดงผลรอบที่กำลังดู
+  const periodLabel = payToFilter
+    ? `รอบสิ้นสุด ${fmtDate(payToFilter)}`
+    : 'ทุกรอบ';
 
   return (
     <div className="p-8 space-y-6 animate-fade-up">
       <Topbar
         title="เงินเดือน"
-        subtitle={`รอบ ${monthLabel} · ${stats.count} รายการ`}
+        subtitle={`${periodLabel} · ${stats.count} รายการ`}
         action={canEdit && (
           <div className="flex gap-2">
             <Button variant="outline" icon="download" onClick={() => setShowSummary(true)}>Export สรุป</Button>
@@ -8579,8 +8587,8 @@ const PayrollPage = () => {
       <Card className="p-4">
         <div className="grid md:grid-cols-4 gap-3">
           <div>
-            <label className="block text-xs text-ink-500 mb-1">รอบเดือน</label>
-            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            <label className="block text-xs text-ink-500 mb-1">ค้นหาวันที่ (วันสุดท้ายของรอบ)</label>
+            <Input type="date" value={payToFilter} onChange={(e) => { setPayToFilter(e.target.value); setSelected([]); }} />
           </div>
           <div>
             <label className="block text-xs text-ink-500 mb-1">ภาค / สาขา</label>
@@ -8611,7 +8619,7 @@ const PayrollPage = () => {
       {/* Table */}
       <Card className="overflow-hidden">
         {monthRecords.length === 0 ? (
-          <Empty icon="tag" title="ยังไม่มีข้อมูลเงินเดือน" desc={`รอบ ${monthLabel} — คลิก "เพิ่มเงินเดือน" เพื่อเริ่มต้น`} />
+          <Empty icon="tag" title="ยังไม่มีข้อมูลเงินเดือน" desc={payToFilter ? `ไม่พบรอบที่สิ้นสุด ${fmtDate(payToFilter)}` : 'ยังไม่มีข้อมูลเงินเดือน — คลิก "เพิ่มเงินเดือน" เพื่อเริ่มต้น'} />
         ) : (
           <div className="overflow-x-auto">
             {/* แถบเลือกพิมพ์รวม */}
@@ -8702,7 +8710,7 @@ const PayrollPage = () => {
         onSave={savePayroll}
         employees={employees.filter(e => user.role !== 'manager' || e.branchId === user.branchId)}
         branches={branches}
-        defaultPeriod={month}
+        defaultPeriod={derivedMonth}
         attendance={attendance}
         leaves={leaves}
         leaveTypes={leaveTypes}
@@ -8723,7 +8731,7 @@ const PayrollPage = () => {
         payroll={payroll}
         employees={employees}
         branches={branches}
-        defaultMonth={month}
+        defaultPayTo={payToFilter}
         lockedBranch={user.role === 'manager' ? user.branchId : null}
       />
 
@@ -8734,7 +8742,7 @@ const PayrollPage = () => {
         employees={employees}
         branches={branches}
         settings={settings}
-        defaultMonth={month}
+        defaultPayTo={payToFilter}
         lockedBranch={user.role === 'manager' ? user.branchId : null}
       />
 
@@ -8770,25 +8778,29 @@ const PayrollPage = () => {
 };
 
 /* ===== BANK TRANSFER MODAL — สร้างไฟล์โอนเงินเดือน (K-BANK) ===== */
-const BankTransferModal = ({ open, onClose, payroll, employees, branches, settings, defaultMonth, lockedBranch }) => {
-  const [month, setMonth] = useState(defaultMonth);
+const BankTransferModal = ({ open, onClose, payroll, employees, branches, settings, defaultPayTo, lockedBranch }) => {
+  const [payTo, setPayTo] = useState(defaultPayTo || '');
   const [branch, setBranch] = useState(lockedBranch || 'all');
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
 
-  useEffect(() => { setMonth(defaultMonth); }, [defaultMonth, open]);
+  useEffect(() => { setPayTo(defaultPayTo || ''); }, [defaultPayTo, open]);
   useEffect(() => { if (lockedBranch) setBranch(lockedBranch); }, [lockedBranch]);
 
   if (!open) return null;
 
-  // record เงินเดือนเดือนที่เลือก + มีบัญชีธนาคาร
+  // record เงินเดือน — กรองด้วยวันสุดท้ายของรอบ (periodTo). ว่าง = ทุกรอบ
   const monthRecs = (payroll || []).filter(p => {
-    const pMonth = p.periodFrom ? String(p.periodFrom).slice(0, 7) : p.period;
-    if (pMonth !== month) return false;
+    if (payTo) {
+      const pTo = p.periodTo ? toYMD(p.periodTo) : null;
+      if (pTo !== payTo) return false;
+    }
     const emp = employees.find(e => e.id === p.employeeId);
     if (!emp) return false;
     if (branch !== 'all' && emp.branchId !== branch) return false;
     return true;
   });
+
+  const periodTxt = payTo ? `รอบ ${fmtDate(payTo)}` : 'ทุกรอบ';
 
   // แยกคนที่มี/ไม่มีบัญชี
   const withBank = [], noBank = [];
@@ -8815,7 +8827,7 @@ const BankTransferModal = ({ open, onClose, payroll, employees, branches, settin
         emp.bankAccountName || `${emp.firstName} ${emp.lastName}`,
         emp.bankName, emp.bankAccount,
         net.toFixed(2), dt,
-        `เงินเดือน ${month}`,
+        `เงินเดือน ${payTo || 'ทุกรอบ'}`,
       ]);
     });
     // แถวรวม
@@ -8826,7 +8838,7 @@ const BankTransferModal = ({ open, onClose, payroll, employees, branches, settin
     ws['!cols'] = [{wch:6},{wch:10},{wch:28},{wch:14},{wch:16},{wch:14},{wch:12},{wch:20}];
     const wb = XLSXlib.utils.book_new();
     XLSXlib.utils.book_append_sheet(wb, ws, 'KBANK_Transfer');
-    XLSXlib.writeFile(wb, `โอนเงินเดือน_KBANK_${month}.xlsx`);
+    XLSXlib.writeFile(wb, `โอนเงินเดือน_KBANK_${payTo || 'ทุกรอบ'}.xlsx`);
   };
 
   return (
@@ -8834,8 +8846,8 @@ const BankTransferModal = ({ open, onClose, payroll, employees, branches, settin
       <div className="space-y-4">
         <div className="grid md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">เดือน</label>
-            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">วันสุดท้ายของรอบ</label>
+            <Input type="date" value={payTo} onChange={(e) => setPayTo(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
@@ -8896,21 +8908,23 @@ const BankTransferModal = ({ open, onClose, payroll, employees, branches, settin
 };
 
 /* ===== EXPORT PAYROLL SUMMARY MODAL — ส่งออกสรุปเงินเดือนรายคน ===== */
-const ExportPayrollSummaryModal = ({ open, onClose, payroll, employees, branches, defaultMonth, lockedBranch }) => {
-  const [month, setMonth] = useState(defaultMonth);
+const ExportPayrollSummaryModal = ({ open, onClose, payroll, employees, branches, defaultPayTo, lockedBranch }) => {
+  const [payTo, setPayTo] = useState(defaultPayTo || '');
   const [branch, setBranch] = useState(lockedBranch || 'all');
   const [selected, setSelected] = useState([]);
   const [search, setSearch] = useState('');
 
-  useEffect(() => { setMonth(defaultMonth); }, [defaultMonth, open]);
+  useEffect(() => { setPayTo(defaultPayTo || ''); }, [defaultPayTo, open]);
   useEffect(() => { if (lockedBranch) setBranch(lockedBranch); }, [lockedBranch]);
 
   if (!open) return null;
 
-  // record เงินเดือนของเดือนที่เลือก (ตาม branch)
+  // record เงินเดือน — กรองด้วยวันสุดท้ายของรอบ (periodTo). ว่าง = ทุกรอบ
   const monthRecs = payroll.filter(p => {
-    const pMonth = p.periodFrom ? String(p.periodFrom).slice(0, 7) : p.period;
-    if (pMonth !== month) return false;
+    if (payTo) {
+      const pTo = p.periodTo ? toYMD(p.periodTo) : null;
+      if (pTo !== payTo) return false;
+    }
     const emp = employees.find(e => e.id === p.employeeId);
     if (!emp) return false;
     if (branch !== 'all' && emp.branchId !== branch) return false;
@@ -8952,7 +8966,7 @@ const ExportPayrollSummaryModal = ({ open, onClose, payroll, employees, branches
     const wb = XLSXlib.utils.book_new();
     XLSXlib.utils.book_append_sheet(wb, ws, 'สรุปเงินเดือน');
     const brName = branch === 'all' ? 'ทุกสาขา' : (branches.find(b => b.id === branch)?.name || branch);
-    XLSXlib.writeFile(wb, `สรุปเงินเดือน_${brName}_${month}.xlsx`);
+    XLSXlib.writeFile(wb, `สรุปเงินเดือน_${brName}_${payTo || 'ทุกรอบ'}.xlsx`);
     onClose();
   };
 
@@ -8966,8 +8980,8 @@ const ExportPayrollSummaryModal = ({ open, onClose, payroll, employees, branches
       <div className="space-y-4">
         <div className="grid md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">เดือน</label>
-            <Input type="month" value={month} onChange={(e) => { setMonth(e.target.value); setSelected([]); }} />
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">วันสุดท้ายของรอบ</label>
+            <Input type="date" value={payTo} onChange={(e) => { setPayTo(e.target.value); setSelected([]); }} />
           </div>
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
