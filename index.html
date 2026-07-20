@@ -1462,13 +1462,23 @@ const Textarea = ({ className = '', ...props }) => (
 );
 
 const Modal = ({ open, onClose, title, children, size = 'md' }) => {
+  // ปิดเฉพาะเมื่อ "กดเริ่ม" ที่ backdrop จริงๆ (กันกรณีลากเมาส์/เลือกข้อความจากในกล่องแล้วปล่อยนอกกล่อง)
+  const downOnBackdrop = useRef(false);
   if (!open) return null;
   const sizes = { sm: 'max-w-md', md: 'max-w-2xl', lg: 'max-w-4xl', xl: 'max-w-6xl' };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/50 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/50 backdrop-blur-sm animate-fade-in"
+      onMouseDown={(e) => { downOnBackdrop.current = (e.target === e.currentTarget); }}
+      onMouseUp={(e) => {
+        // ปิดก็ต่อเมื่อทั้งกดและปล่อยที่ backdrop เดียวกัน (คลิกจริง ไม่ใช่ลากออกมา)
+        if (downOnBackdrop.current && e.target === e.currentTarget) onClose();
+        downOnBackdrop.current = false;
+      }}
+    >
       <div
         className={cls('bg-white rounded-2xl shadow-card w-full max-h-[90vh] overflow-hidden flex flex-col animate-fade-up', sizes[size])}
-        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-ink-100">
           <h3 className="font-display text-lg font-semibold text-ink-900">{title}</h3>
