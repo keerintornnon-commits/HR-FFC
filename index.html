@@ -741,7 +741,6 @@ const api = {
         warnings:      settings.warnings || company.warnings || [],
         warningConfig: settings.warningConfig || company.warningConfig || { lateThreshold: 6 },
         shifts:        settings.shifts || company.shifts || [],
-        shifts:        settings.shifts || company.shifts || [],
       };
       return {
         employees:   (employees || []).map(r => fromDb('employees', r)),
@@ -1295,8 +1294,11 @@ const recordDeduct = (emp, a, leaves, leaveTypes) => {
   const perHour = perDay / 8;
   const dYMD = toYMD(a.date);
 
-  // 1) มาสาย → ค่าปรับตามช่วงนาที
-  if (a.status === 'late' && a.checkIn) {
+  // วันเข้ากะ → ไม่คิดค่าปรับสาย (แค่บันทึกเวลา)
+  const isShift = a.source === 'shift' || a.shiftId;
+
+  // 1) มาสาย → ค่าปรับตามช่วงนาที (ยกเว้นวันเข้ากะ)
+  if (a.status === 'late' && a.checkIn && !isShift) {
     const fine = calcLateFine(a.checkIn);
     return fine > 0 ? { amount: fine, label: `หัก ${fmtMoney(fine)}฿` } : { amount: 0, label: '-' };
   }
@@ -4878,6 +4880,7 @@ const UploadAttendanceModal = ({ open, onClose, onImport, employees, settings, l
           if (!normDate) normDate = date;
 
           let status, leaveType = null, leavePeriod = null, leaveHours = null;
+          let isShiftDay = false, shiftIdForDay = null;   // เข้ากะ (ไม่คิดสาย/ค่าปรับ)
 
           // หาการลาที่อนุมัติแล้วในวันนั้น (ใช้ทั้งกรณีมี/ไม่มีสแกน)
           const matchLeave = (leaves || []).find(l =>
@@ -4909,8 +4912,12 @@ const UploadAttendanceModal = ({ open, onClose, onImport, employees, settings, l
             }
           } else {
             // มีการสแกน (เข้า และ/หรือ ออก)
+            // 0) เช็คว่าวันนั้นมีกะไหม — ถ้ามีกะ ไม่คิดสาย/ค่าปรับ (แค่บันทึกเวลา)
+            const shiftToday = findShift(empId, normDate, (settings && settings.shifts) || []);
+
             // 1) คำนวณ ตรงเวลา/สาย จากเวลาเข้า (ใช้เวลามาตรฐานตรึง: เข้า 08:00 สายได้ 5 นาที)
-            const baseAtt = (checkIn && lateMinutesOf(checkIn) > 0) ? 'late' : 'ontime';
+            //    ถ้ามีกะ → ไม่คิดสาย (ontime เสมอ)
+            const baseAtt = shiftToday ? 'ontime' : ((checkIn && lateMinutesOf(checkIn) > 0) ? 'late' : 'ontime');
 
             // 2) ถ้ามีลาครึ่งวัน/ลาเป็นชั่วโมงในวันเดียวกัน → ขึ้นสถานะลาแบบนั้น (มาทำงานบางส่วน + ลาบางส่วน)
             const isPartialLeave = matchLeave &&
@@ -4928,6 +4935,8 @@ const UploadAttendanceModal = ({ open, onClose, onImport, employees, settings, l
             } else {
               status = baseAtt;
             }
+            // ทำเครื่องหมายว่าเป็นวันเข้ากะ (เพื่อแสดง badge + ไม่คิดค่าปรับตอนคำนวณเงินเดือน)
+            if (shiftToday) { isShiftDay = true; shiftIdForDay = shiftToday.id; }
           }
 
           records.push({
@@ -4936,7 +4945,8 @@ const UploadAttendanceModal = ({ open, onClose, onImport, employees, settings, l
             date: normDate,
             checkIn,
             checkOut: checkOut || null,
-            source: 'fingerprint',
+            source: isShiftDay ? 'shift' : 'fingerprint',
+            shiftId: shiftIdForDay,
             status,
             leaveType,  // เก็บประเภทการลา (ถ้า status = leave/partial)
             leavePeriod, // full/morning/afternoon/hours
@@ -8115,7 +8125,9 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   let lateFine = 0;
   const lateDetails = [];
   monthAtt.forEach(a => {
-    if (a.status === 'late' && a.checkIn) {
+    // วันเข้ากะ → ไม่คิดค่าปรับสาย
+    const isShift = a.source === 'shift' || a.shiftId;
+    if (a.status === 'late' && a.checkIn && !isShift) {
       const lm = lateMinutesOf(a.checkIn);
       const fine = calcLateFine(a.checkIn);   // ส่งเวลาเข้างานตรงๆ เพื่อ map ช่วงให้แม่น
       if (fine > 0) { lateFine += fine; lateDetails.push({ date: toYMD(a.date), minutes: lm, fine }); }
