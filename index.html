@@ -10729,6 +10729,7 @@ const ExpenseFormModal = ({ open, onClose, editing, onSave, employees, myEmp, ca
       destination: '', purpose: '', dateFrom: new Date().toISOString().split('T')[0], dateTo: '',
       days: 1, offsiteHours: 0,
       lodgingActual: 0, carKm: 0, transportActual: 0, otherCost: 0,
+      receipts: [],
       status: 'pending', note: '', createdAt: new Date().toISOString(),
     });
   }, [editing, open, myEmp]);
@@ -10919,6 +10920,69 @@ const ExpenseFormModal = ({ open, onClose, editing, onSave, employees, myEmp, ca
             {editing.approvedBy ? ` โดย ${editing.approvedBy}` : ''}
           </div>
         )}
+
+        {/* แนบบิล/ใบเสร็จ (ผู้ขอเบิกแนบได้ตอนยื่น/ยังไม่อนุมัติ) */}
+        <div className="bg-flow-50/60 border border-flow-100 rounded-xl p-4">
+          <h4 className="font-medium text-ink-800 mb-2 flex items-center gap-2">
+            <Icon name="file" className="w-4 h-4 text-flow-600" /> บิล / ใบเสร็จ / หลักฐานการจ่าย
+          </h4>
+
+          {/* รายการไฟล์ที่แนบแล้ว */}
+          {(form.receipts && form.receipts.length > 0) && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+              {form.receipts.map((r, i) => (
+                <div key={i} className="relative group border border-ink-200 rounded-lg overflow-hidden bg-white">
+                  {String(r.data).match(/\.(pdf)$|^data:application\/pdf/i) || /pdf/i.test(r.name || '') ? (
+                    <a href={r.data} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center h-24 text-ink-500 hover:bg-ink-50">
+                      <Icon name="file" className="w-7 h-7" />
+                      <span className="text-[11px] mt-1 px-1 truncate max-w-full">{r.name || 'ไฟล์.pdf'}</span>
+                    </a>
+                  ) : (
+                    <a href={r.data} target="_blank" rel="noreferrer">
+                      <img src={r.data} alt={r.name || 'บิล'} className="h-24 w-full object-cover hover:opacity-90" />
+                    </a>
+                  )}
+                  {!readOnly && (
+                    <button type="button"
+                      onClick={() => setForm(f => ({ ...f, receipts: f.receipts.filter((_, j) => j !== i) }))}
+                      className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ปุ่มแนบไฟล์ (ตอนยังแก้ได้) */}
+          {!readOnly ? (
+            <div>
+              <input type="file" accept="image/*,application/pdf" multiple id="receipt-upload" className="hidden" onChange={async (e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length === 0) return;
+                for (const file of files) {
+                  if (file.size > 5 * 1024 * 1024) { alert(`ไฟล์ ${file.name} ใหญ่เกิน 5MB`); continue; }
+                  try {
+                    let data, name = file.name;
+                    if (api.enabled()) {
+                      data = await sbStorage.upload('expense-receipts', file);
+                    } else {
+                      data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); });
+                    }
+                    setForm(f => ({ ...f, receipts: [...(f.receipts || []), { data, name }] }));
+                  } catch (err) { alert('อัปโหลดไม่สำเร็จ: ' + err.message); }
+                }
+                e.target.value = '';
+              }} />
+              <label htmlFor="receipt-upload" className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-flow-300 hover:bg-flow-100 text-sm font-medium text-flow-700">
+                <Icon name="upload" className="w-4 h-4" /> แนบบิล/ใบเสร็จ (รูป/PDF)
+              </label>
+              <p className="text-xs text-ink-400 mt-1.5">แนบได้หลายไฟล์ · รูปภาพหรือ PDF ขนาดไม่เกิน 5MB ต่อไฟล์</p>
+            </div>
+          ) : (
+            (!form.receipts || form.receipts.length === 0) && <p className="text-sm text-ink-400">ไม่มีบิล/ใบเสร็จแนบ</p>
+          )}
+        </div>
 
         {/* แนบสลิปโอนเงิน — แสดงเมื่ออนุมัติแล้ว/จ่ายแล้ว */}
         {editing && (form.status === 'approved' || form.status === 'paid') && (
