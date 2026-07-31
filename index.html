@@ -742,6 +742,7 @@ const api = {
         warnings:      settings.warnings || company.warnings || [],
         warningConfig: settings.warningConfig || company.warningConfig || { lateThreshold: 6 },
         shifts:        settings.shifts || company.shifts || [],
+        holidays:      settings.holidays || company.holidays || [],
       };
       return {
         employees:   (employees || []).map(r => fromDb('employees', r)),
@@ -886,6 +887,7 @@ const api = {
       case 'deleteAsset':     return sb.remove('assets',      'id', payload.id);
       case 'deletePayroll':   return sb.remove('payroll',     'id', payload.id);
       case 'deleteLeave':     return sb.remove('leaves',      'id', payload.id);
+      case 'deleteAttendance': return sb.remove('attendance', 'id', payload.id);
       case 'deleteKpiRecord': return sb.remove('kpi_records', 'id', payload.id);
 
       // ── จัดการผู้ใช้งาน (admin) ──
@@ -1260,6 +1262,13 @@ const isWeeklyDayOff = (dateStr, branchId) => {
   const dow = d.getDay();   // 0=อา 6=ส
   if (branchId === 'NRT') return dow === 0 || dow === 6;
   return dow === 0;
+};
+
+// เช็ควันหยุดบริษัท/นักขัตฤกษ์ (จาก settings.holidays — array ของ { date, name } หรือ string 'YYYY-MM-DD')
+const isCompanyHoliday = (dateStr, holidays) => {
+  if (!holidays || holidays.length === 0) return false;
+  const ymd = String(dateStr).slice(0, 10);
+  return holidays.some(h => (typeof h === 'string' ? h : h.date) === ymd);
 };
 
 // คำนวณค่าปรับมาสายตามช่วงเวลาเข้างานจริง (ไม่บวกสะสม — แต่ละช่วงคิดเรทเดียว)
@@ -2191,7 +2200,7 @@ const Topbar = ({ title, subtitle, action }) => {
    DASHBOARD PAGE
    ============================================================= */
 const Dashboard = ({ }) => {
-  const { employees, attendance, leaves, leaveTypes, branches, user, refreshData, syncing } = useApp();
+  const { employees, attendance, leaves, leaveTypes, branches, user, refreshData, syncing, settings } = useApp();
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);  // วันที่ที่เลือกดูรายละเอียด
   const [detailTab, setDetailTab] = useState('leave');       // leave / absent / late / wfh
@@ -2255,7 +2264,8 @@ const Dashboard = ({ }) => {
     if (dayAtt.length > 0) {
       absentList = activeEmps.filter(e =>
         !dayAttEmpIds.has(e.id) && !dayLeaveEmpIds.has(e.id) &&
-        !isWeeklyDayOff(selectedDate, e.branchId)
+        !isWeeklyDayOff(selectedDate, e.branchId) &&
+        !isCompanyHoliday(selectedDate, (settings && settings.holidays) || [])
       ).map(e => ({ employeeId: e.id, type: 'absent' }));
     }
     // รวม leave type = absent ด้วย
@@ -4481,8 +4491,17 @@ const AttendancePage = () => {
         open={showUpload}
         onClose={() => setShowUpload(false)}
         onImport={(records) => {
-          setAttendance([...attendance, ...records]);
+          // สร้าง key (คน+วัน) ของ record ใหม่ เพื่อลบแถวเก่าของวัน/คนเดียวกันออกก่อน (กันข้อมูลซ้ำ)
+          const newKeys = new Set(records.map(r => `${r.employeeId}_${toYMD(r.date)}`));
+          const oldToRemove = attendance.filter(a => newKeys.has(`${a.employeeId}_${toYMD(a.date)}`));
+          const kept = attendance.filter(a => !newKeys.has(`${a.employeeId}_${toYMD(a.date)}`));
+          setAttendance([...kept, ...records]);
           if (api.enabled()) {
+            // ลบแถวเก่าที่ id ไม่ตรงกับ record ใหม่ (id คนละ format) ออกจาก DB ด้วย
+            const newIds = new Set(records.map(r => r.id));
+            oldToRemove.forEach(a => {
+              if (a.id && !newIds.has(a.id)) api.post('deleteAttendance', { id: a.id }).catch(() => {});
+            });
             api.post('saveAttendanceBatch', { data: records })
               .then(() => addToast('success', `นำเข้าและบันทึก ${records.length} รายการสำเร็จ`))
               .catch(err => {
@@ -4913,9 +4932,11 @@ const UploadAttendanceModal = ({ open, onClose, onImport, employees, settings, l
               leavePeriod = matchLeave.period || 'full';
               leaveHours = matchLeave.hours || null;
             } else {
-              // เช็ควันหยุดประจำสัปดาห์ตามสาขา (NRT หยุด ส-อา, อื่นๆ หยุดอาทิตย์) — ไม่นับขาดงาน
+              // เช็ควันหยุดบริษัท/นักขัตฤกษ์ หรือวันหยุดประจำสัปดาห์ตามสาขา — ไม่นับขาดงาน
               const empBranch = (employees.find(e => e.id === empId) || {}).branchId;
-              if (isWeeklyDayOff(normDate, empBranch)) {
+              if (isCompanyHoliday(normDate, (settings && settings.holidays) || [])) {
+                status = 'holiday';   // วันหยุดบริษัท/นักขัตฤกษ์
+              } else if (isWeeklyDayOff(normDate, empBranch)) {
                 status = 'holiday';   // วันหยุดประจำสัปดาห์
               } else {
                 status = 'absent';
@@ -8077,7 +8098,7 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     const d = new Date(f + 'T00:00:00'), end = new Date(t + 'T00:00:00');
     while (d <= end) {
       const ymd = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      if (!isWeeklyDayOff(ymd, emp.branchId)) n++;
+      if (!isWeeklyDayOff(ymd, emp.branchId) && !isCompanyHoliday(ymd, (settings && settings.holidays) || [])) n++;
       d.setDate(d.getDate() + 1);
     }
     return n;
@@ -8089,7 +8110,7 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
   const perHour = perDay / 8;
 
   // เช็ควันหยุดประจำสัปดาห์ตามสาขา (NRT: ส-อา, อื่นๆ: อาทิตย์)
-  const isDayOff = (ymd) => isWeeklyDayOff(ymd, emp.branchId);
+  const isDayOff = (ymd) => isWeeklyDayOff(ymd, emp.branchId) || isCompanyHoliday(ymd, (settings && settings.holidays) || []);
   const inRange = (ymd) => ymd >= from && ymd <= to;
 
   // กรองข้อมูลในช่วงวันที่ (ตัดวันหยุดประจำสัปดาห์ออก — ไม่นับวันทำงาน/ไม่หัก)
@@ -13058,6 +13079,85 @@ const CertRequestsTab = ({ employees, settings, setSettings, addToast, currentUs
   );
 };
 
+const CompanyHolidaysCard = ({ settings, setSettings, addToast }) => {
+  const holidays = ((settings && settings.holidays) || [])
+    .map(h => (typeof h === 'string' ? { date: h, name: '' } : h))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const [newDate, setNewDate] = useState('');
+  const [newName, setNewName] = useState('');
+
+  const saveList = async (list) => {
+    const next = { ...settings, holidays: list };
+    setSettings(next);
+    if (api.enabled()) {
+      try { await api.post('saveSettingsKey', { key: 'holidays', data: list }); }
+      catch (err) { addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message); }
+    }
+  };
+
+  const addHoliday = () => {
+    if (!newDate) { addToast('error', 'กรุณาเลือกวันที่'); return; }
+    if (holidays.some(h => h.date === newDate)) { addToast('error', 'มีวันหยุดนี้อยู่แล้ว'); return; }
+    saveList([...holidays, { date: newDate, name: newName.trim() || 'วันหยุดบริษัท' }]);
+    setNewDate(''); setNewName('');
+    addToast('success', 'เพิ่มวันหยุดแล้ว');
+  };
+
+  const removeHoliday = (date) => {
+    saveList(holidays.filter(h => h.date !== date));
+    addToast('success', 'ลบวันหยุดแล้ว');
+  };
+
+  const fmtThai = (ymd) => {
+    const [y, m, d] = ymd.split('-').map(Number);
+    return `${d} ${THAI_MONTHS[m - 1]} ${y + 543}`;
+  };
+
+  return (
+    <Card className="p-6 max-w-3xl">
+      <h3 className="font-display text-lg font-semibold text-ink-900 mb-1">วันหยุดบริษัท / นักขัตฤกษ์</h3>
+      <p className="text-sm text-ink-500 mb-5">วันที่กำหนดไว้จะไม่ถูกนับเป็นขาดงานเมื่ออัปโหลดข้อมูลสแกนนิ้ว</p>
+
+      {/* เพิ่มวันหยุด */}
+      <div className="grid md:grid-cols-[auto_1fr_auto] gap-3 items-end mb-5">
+        <div>
+          <label className="block text-xs text-ink-500 mb-1">วันที่</label>
+          <Input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-xs text-ink-500 mb-1">ชื่อวันหยุด (ไม่บังคับ)</label>
+          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="เช่น วันหยุดบริษัท, วันสงกรานต์" />
+        </div>
+        <Button icon="plus" onClick={addHoliday}>เพิ่ม</Button>
+      </div>
+
+      {/* รายการวันหยุด */}
+      {holidays.length === 0 ? (
+        <p className="text-sm text-ink-400 text-center py-4">ยังไม่มีวันหยุดบริษัท</p>
+      ) : (
+        <div className="space-y-1.5">
+          {holidays.map(h => (
+            <div key={h.date} className="flex items-center justify-between bg-ink-50 rounded-lg px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                <span className="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
+                  <Icon name="calendar" className="w-5 h-5" />
+                </span>
+                <div>
+                  <div className="font-medium text-ink-800">{fmtThai(h.date)}</div>
+                  <div className="text-xs text-ink-500">{h.name || 'วันหยุดบริษัท'}</div>
+                </div>
+              </div>
+              <button onClick={() => removeHoliday(h.date)} className="p-1.5 rounded-lg text-ink-400 hover:bg-red-50 hover:text-red-600" title="ลบ">
+                <Icon name="trash" className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+};
+
 const SettingsPage = () => {
   const {
     leaveTypes, setLeaveTypes,
@@ -13613,6 +13713,8 @@ const SettingsPage = () => {
               </div>
             </div>
           </Card>
+
+          <CompanyHolidaysCard settings={settings} setSettings={setSettings} addToast={addToast} />
 
           <div className="max-w-3xl flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setCompanyForm(settings)}>ยกเลิก</Button>
