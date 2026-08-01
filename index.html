@@ -6319,6 +6319,19 @@ const LeavesPage = () => {
     }
   };
 
+  // ลบรายการลา (ลบทั้ง state และฐานข้อมูล — สิทธิ์วันลาจะคืนทันที)
+  const deleteLeave = (l) => {
+    const emp = employees.find(e => e.id === l.employeeId);
+    const who = emp ? `${emp.firstName} ${emp.lastName}` : l.employeeId;
+    if (!confirm(`ลบรายการลานี้?\n${who} · ${fmtDate(l.startDate)}${l.days ? ' · ' + l.days + ' วัน' : ''}\n\nสิทธิ์วันลาที่ใช้ไปจะถูกคืน`)) return;
+    setLeaves(leaves.filter(x => x.id !== l.id));
+    addToast('success', 'ลบรายการลาแล้ว — สิทธิ์วันลาคืนแล้ว');
+    if (api.enabled()) {
+      api.post('deleteLeave', { id: l.id })
+        .catch(err => addToast('error', 'ลบจากฐานข้อมูลไม่สำเร็จ: ' + err.message));
+    }
+  };
+
   return (
     <div className="p-8 space-y-6 animate-fade-up">
       <Topbar
@@ -6426,6 +6439,17 @@ const LeavesPage = () => {
                   <Button variant="danger" size="sm" icon="x" className="flex-1" onClick={() => updateStatus(l.id, 'rejected')}>
                     ปฏิเสธ
                   </Button>
+                </div>
+              )}
+
+              {/* ปุ่มลบรายการลา (admin/hr/ผู้อนุมัติ) — ลบทั้ง state และ DB สิทธิ์วันลาจะคืนทันที */}
+              {l.status !== 'pending' && canApproveLeaveOf(emp) && (
+                <div className="flex justify-end mt-3 pt-3 border-t border-ink-100">
+                  <button
+                    onClick={() => deleteLeave(l)}
+                    className="text-xs px-3 py-1.5 rounded-lg text-red-500 hover:bg-red-50 flex items-center gap-1.5">
+                    <Icon name="trash" className="w-3.5 h-3.5" /> ลบรายการนี้
+                  </button>
                 </div>
               )}
             </Card>
@@ -14323,6 +14347,11 @@ const App = () => {
   const refreshData = async () => {
     if (!api.enabled() || syncing) return;
     setSyncing(true);
+    // ล้าง cache เก่าก่อน เพื่อบังคับดึงข้อมูลสดจากฐานข้อมูล (กันกรณีลบข้อมูลใน DB โดยตรงแล้วไม่อัปเดต)
+    try {
+      localStorage.removeItem('ffc_data_cache');
+      localStorage.removeItem('ffc_cache_time');
+    } catch {}
     try {
       const data = await api.get('getAll');
       setEmployees(data.employees || []);
@@ -14331,10 +14360,11 @@ const App = () => {
       if (data.leaveTypes?.length) setLeaveTypes(data.leaveTypes);
       if (data.branches?.length) setBranches(data.branches);
       if (data.departments?.length) setDepartments(data.departments);
-      if (data.assets?.length) setAssets(data.assets);
-      if (data.payroll?.length) setPayroll(data.payroll);
+      // set ตรงๆ (ไม่ใช้ .length guard) เพื่อให้ข้อมูลที่ถูกลบใน DB สะท้อนในแอปด้วย
+      setAssets(data.assets || []);
+      setPayroll(data.payroll || []);
       if (data.kpiCriteria?.length) setKpiCriteria(data.kpiCriteria);
-      if (data.kpiRecords?.length) setKpiRecords(data.kpiRecords);
+      setKpiRecords(data.kpiRecords || []);
       if (data.settings && Object.keys(data.settings).length) setSettings(s => ({ ...s, ...data.settings }));
       try {
         localStorage.setItem('ffc_data_cache', JSON.stringify(data));
