@@ -3039,8 +3039,17 @@ const EmployeesPage = () => {
         leaveTypes={leaveTypes}
         onImport={(newEmps, newLeaves) => {
           // Merge พนักงาน (อัปเดตถ้ามีรหัสเดิม / เพิ่มถ้าใหม่)
+          // สำคัญ: ไม่เอาค่าว่าง/null จากไฟล์ทับข้อมูลเดิม (กันข้อมูลหายถ้าไฟล์มีบางช่องว่าง)
           const empMap = new Map(employees.map(e => [e.id, e]));
-          newEmps.forEach(e => empMap.set(e.id, { ...empMap.get(e.id), ...e }));
+          newEmps.forEach(e => {
+            const old = empMap.get(e.id) || {};
+            const cleaned = {};
+            Object.entries(e).forEach(([k, v]) => {
+              // เก็บเฉพาะค่าที่ไม่ว่าง (ถ้าว่างจะใช้ค่าเดิม)
+              if (v !== '' && v !== null && v !== undefined) cleaned[k] = v;
+            });
+            empMap.set(e.id, { ...old, ...cleaned });
+          });
           const merged = Array.from(empMap.values());
           setEmployees(merged);
 
@@ -3055,10 +3064,11 @@ const EmployeesPage = () => {
           addToast('success', `นำเข้าพนักงาน ${newEmps.length} คนสำเร็จ${newLeaves?.length ? ` พร้อมประวัติการลา ${newLeaves.length} รายการ` : ''}`);
 
           if (api.enabled()) {
-            // บันทึกพนักงานทีละคน (Apps Script จะ upsert)
+            // บันทึกพนักงานทีละคน — ใช้ตัวที่ merge แล้ว (ไม่ให้ค่าว่างทับ DB)
             (async () => {
               for (const e of newEmps) {
-                try { await api.post('saveEmployee', { data: e }); } catch (err) {}
+                const finalEmp = empMap.get(e.id);
+                try { await api.post('saveEmployee', { data: finalEmp }); } catch (err) {}
               }
               if (newLeaves && newLeaves.length > 0) {
                 for (const lv of newLeaves) {
@@ -5326,6 +5336,29 @@ const ImportEmployeesModal = ({ open, onClose, existingEmployees, branches, leav
         const orphanLeaves = leaves.filter(l => !empIdSet.has(l.employeeId)).length;
         if (orphanLeaves > 0) {
           errs.push(`มี ${orphanLeaves} รายการลา อ้างถึงรหัสพนักงานที่ไม่มีในระบบ`);
+        }
+
+        // ===== ป้องกันอัปโหลดไฟล์ผิดประเภท (ไฟล์เวลาเข้างาน) =====
+        // เช็คว่าชีตพนักงานมีคอลัมน์เวลาเข้า-ออก (check_in/เวลา) — ถ้ามี แปลว่าน่าจะเป็นไฟล์สแกนนิ้ว
+        const empHeaders = empRows.length > 0 ? Object.keys(empRows[0]).join(' ').toLowerCase() : '';
+        const looksLikeAttendance = /check.?in|check.?out|เวลาเข้า|เวลาออก|สแกน|วันที่.*เวลา/i.test(empHeaders);
+        // เช็คว่าเกินครึ่งของแถวไม่มีชื่อ (ไฟล์เวลามักมีแต่รหัส+เวลา ไม่มีชื่อ)
+        const rowsNoName = empRows.filter(r => {
+          const nm = String(r['ชื่อ-นามสกุล'] || r['ชื่อ'] || r['name'] || '').trim();
+          const idv = String(r['รหัสพนักงาน'] || r['employee_id'] || r['id'] || '').trim();
+          return idv && !nm;
+        }).length;
+        const mostlyNoName = empRows.length > 0 && rowsNoName > empRows.length * 0.5;
+
+        if (looksLikeAttendance || mostlyNoName) {
+          setErrors([
+            '⚠️ ไฟล์นี้ดูเหมือนเป็นไฟล์เวลาเข้า-ออกงาน (สแกนนิ้ว) ไม่ใช่ไฟล์ข้อมูลพนักงาน',
+            'หากต้องการอัปโหลดเวลาเข้างาน กรุณาไปที่เมนู "การเข้า-ออกงาน" แทน',
+            'การอัปโหลดที่นี่จะทำให้ข้อมูลพนักงาน (ชื่อ/ตำแหน่ง/รูป) หายได้',
+            looksLikeAttendance ? '(พบคอลัมน์เวลาเข้า-ออกในไฟล์)' : `(${rowsNoName} จาก ${empRows.length} แถว ไม่มีชื่อพนักงาน)`,
+          ]);
+          setPreview(null);
+          return;
         }
 
         setPreview({ employees, leaves, empSheetName, lvSheetName });
