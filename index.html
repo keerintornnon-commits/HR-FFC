@@ -868,9 +868,16 @@ const api = {
       case 'saveLeaveTypes':
         await sb.request('DELETE', 'leave_types?id=neq.__none__');
         return (d && d.length) ? sb.upsert('leave_types', d) : null;
-      case 'saveBranches':
-        await sb.request('DELETE', 'branches?id=neq.__none__');
-        return (d && d.length) ? sb.upsert('branches', d) : null;
+      case 'saveBranches': {
+        // ปลอดภัย: upsert ก่อน (ถ้า field ไม่ตรง/คอลัมน์ขาด จะ throw ที่นี่ — ยังไม่ลบอะไร)
+        if (!d || !d.length) return null;
+        await sb.upsert('branches', d);
+        // ลบเฉพาะสาขาที่ไม่อยู่ในลิสต์ใหม่ (ไม่ delete-all ก่อน — กันข้อมูลหายถ้า upsert fail)
+        const keepIds = d.map(b => b.id);
+        const inList = keepIds.map(id => `"${id}"`).join(',');
+        await sb.request('DELETE', `branches?id=not.in.(${inList})`);
+        return null;
+      }
       case 'saveDepartments':
         await sb.request('DELETE', 'departments?name=neq.__none__');
         return (d && d.length) ? sb.upsert('departments', d.map(name => ({ name }))) : null;
