@@ -1018,6 +1018,201 @@ const ASSET_CODE_MAP = (() => {
 const ASSET_CONDITIONS = ['ดีมาก', 'ดี', 'พอใช้', 'ต้องซ่อม', 'ชำรุด'];
 const ASSET_STATUSES = ['ใช้งานได้', 'ชำรุด/รอซ่อม', 'จำหน่ายแล้ว', 'สูญหาย'];
 
+// ===== แบบฟอร์มขอยืมทรัพย์สินของบริษัท =====
+const ASSET_BORROW_TERMS_DEFAULT =
+`1. ผู้ยืมต้องดูแลรักษาทรัพย์สินของบริษัทด้วยความระมัดระวัง และใช้งานเพื่อวัตถุประสงค์ทางธุรกิจของบริษัทเท่านั้น
+2. หากทรัพย์สินเกิดการชำรุด เสียหาย หรือสูญหายอันเกิดจากความประมาทของผู้ยืม ผู้ยืมต้องรับผิดชอบชดใช้ค่าเสียหายตามราคาประเมิน หรือดำเนินการซ่อมแซมให้อยู่ในสภาพใช้งานได้ตามเดิม
+3. ผู้ยืมต้องคืนทรัพย์สินตามกำหนดระยะเวลาที่ระบุไว้ หากมีความจำเป็นต้องขยายเวลา ต้องแจ้งและขออนุมัติล่วงหน้าก่อนครบกำหนด
+4. ห้ามนำทรัพย์สินของบริษัทไปใช้เพื่อประโยชน์ส่วนตัว ให้ผู้อื่นยืมต่อ หรือนำไปใช้ในกิจการอื่นนอกเหนือจากที่บริษัทกำหนด โดยไม่ได้รับอนุญาต
+5. เมื่อครบกำหนดคืน ผู้รับคืนทรัพย์สิน (ฝ่าย IT) จะเป็นผู้ตรวจสอบสภาพทรัพย์สินและบันทึกผลการตรวจรับคืนไว้เป็นหลักฐาน`;
+
+// สร้างเอกสาร "แบบฟอร์มขอยืมทรัพย์สินของบริษัท" และเปิดหน้าต่างสำหรับพิมพ์ / ดาวน์โหลด PDF
+const printAssetBorrowForm = (data, settings) => {
+  const S = 'scr' + 'ipt';
+  const { borrower, branch, position, department, phone, purpose,
+          items, startDate, endDate, terms, approver, returner, docNo } = data;
+
+  const fmtThaiDate = (v) => {
+    if (!v) return '............/............/............';
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return '............/............/............';
+    return `${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
+  };
+  const today = new Date();
+  const dateThai = `${today.getDate()} ${THAI_MONTHS[today.getMonth()]} ${today.getFullYear() + 543}`;
+  const borrowerName = borrower ? `${borrower.firstName} ${borrower.lastName}` : '-';
+  const fileName = `ใบยืมทรัพย์สิน_${borrower ? borrower.firstName + borrower.lastName : 'form'}_${toYMD(new Date())}`;
+
+  const rowsHtml = (items || []).map((it, i) => `
+    <tr>
+      <td style="text-align:center">${i + 1}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${it.code || '-'}</td>
+      <td>${it.name || '-'}</td>
+      <td style="text-align:center">${it.qty || 1}</td>
+      <td style="text-align:center">${it.condition || '-'}</td>
+    </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;color:#999;padding:14px">ไม่มีรายการทรัพย์สิน</td></tr>`;
+
+  const termsHtml = String(terms || ASSET_BORROW_TERMS_DEFAULT)
+    .split('\n').filter(Boolean).map(line => `<div style="margin-bottom:5px">${line}</div>`).join('');
+
+  const win = window.open('', '_blank');
+  if (!win) { alert('กรุณาอนุญาต popup เพื่อเปิดแบบฟอร์ม'); return; }
+  win.document.write(`
+    <!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
+    <title>แบบฟอร์มขอยืมทรัพย์สินของบริษัท - ${borrowerName}</title>
+    <${S} src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></${S}>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+      * { margin:0; padding:0; box-sizing:border-box; font-family:'Sarabun',sans-serif; }
+      body { color:#1a1a1a; background:#e5e7eb; font-size:14px; line-height:1.55; }
+      .toolbar { position:sticky; top:0; background:#0B2A4A; padding:12px 20px; display:flex; gap:10px; justify-content:center; z-index:10; box-shadow:0 2px 8px rgba(0,0,0,.2); }
+      .toolbar button { font-family:'Sarabun',sans-serif; font-size:14px; font-weight:600; padding:9px 20px; border-radius:8px; border:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+      .btn-pdf { background:#10B981; color:#fff; }
+      .btn-pdf:hover { opacity:.9; }
+      .btn-print { background:transparent; color:#fff; border:1px solid rgba(255,255,255,.4) !important; }
+      .btn-print:hover { background:rgba(255,255,255,.1); }
+      .btn-close { background:#fff; color:#333; }
+      .btn-close:hover { background:#f1f5f9; }
+      .sheet-wrap { padding:24px; display:flex; justify-content:center; }
+      .page { width:210mm; min-height:297mm; background:#fff; padding:16mm 18mm; position:relative; box-shadow:0 4px 20px rgba(0,0,0,.15); }
+      .head { display:flex; align-items:center; gap:14px; border-bottom:3px solid #0B2A4A; padding-bottom:10px; margin-bottom:4px; }
+      .head img { width:52px; height:auto; }
+      .company { font-size:17px; font-weight:700; color:#0B2A4A; }
+      .company small { display:block; font-size:11px; font-weight:400; color:#555; margin-top:2px; }
+      .doc-no { text-align:right; font-size:12px; color:#666; margin-bottom:10px; }
+      h1 { text-align:center; font-size:20px; color:#0B2A4A; margin:12px 0 16px; }
+      .sec-title { font-weight:700; color:#0B2A4A; font-size:14px; margin:14px 0 8px; padding-bottom:4px; border-bottom:1px solid #dbe3ee; display:flex; align-items:center; gap:6px; }
+      .sec-num { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:5px; background:#0B2A4A; color:#fff; font-size:11px; }
+      .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:4px 18px; }
+      .row { margin-bottom:5px; font-size:13px; }
+      .label { font-weight:600; color:#333; display:inline-block; min-width:90px; }
+      table.assets { width:100%; border-collapse:collapse; margin-top:4px; font-size:12.5px; }
+      table.assets th { background:#0B2A4A; color:#fff; padding:7px 6px; font-weight:600; font-size:12px; text-align:left; }
+      table.assets td { padding:6px 6px; border-bottom:1px solid #e5e7eb; }
+      table.assets tr:nth-child(even) td { background:#f8fafc; }
+      .period-box { background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:10px 14px; display:flex; gap:28px; font-size:13px; }
+      .terms-box { background:#fefce8; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#444; text-align:left; }
+      .sign { display:flex; justify-content:space-between; margin-top:26px; gap:10px; }
+      .sign-box { text-align:center; width:32%; }
+      .sign-slot { height:42px; }
+      .sign-line { border-top:1px solid #333; padding-top:6px; font-size:12.5px; }
+      .sign-role { font-size:11px; color:#666; margin-top:2px; }
+      .sign-date { font-size:11px; color:#666; margin-top:10px; }
+      @media print {
+        body { background:#fff; }
+        .toolbar { display:none; }
+        .sheet-wrap { padding:0; }
+        .page { box-shadow:none; width:auto; min-height:auto; padding:12mm 16mm; }
+        @page { size:A4; margin:0; }
+      }
+    </style></head><body>
+      <div class="toolbar">
+        <button class="btn-pdf" onclick="downloadPDF()">⬇ ดาวน์โหลด PDF</button>
+        <button class="btn-print" onclick="window.print()">🖨 พิมพ์</button>
+        <button class="btn-close" onclick="window.close()">✕ ปิด</button>
+      </div>
+      <div class="sheet-wrap">
+        <div class="page" id="borrow-page">
+          <div class="head">
+            <img src="${LOGO_EAGLE}" alt="FFC" />
+            <div class="company">${settings.companyName || 'บริษัท ฟรีด้อมโฟล เทรดดิ้ง จำกัด'}
+              <small>${settings.address || 'เลขที่ 10/95 อาคารเดอะเทรนดี้ ชั้น 6 ซอย 13 แขวงคลองเตยเหนือ เขตวัฒนา กรุงเทพมหานคร 10110'}${settings.phone ? ' · โทร. ' + settings.phone : ''}</small>
+            </div>
+          </div>
+          <div class="doc-no">เลขที่: ${docNo || '-'}<br>วันที่ออกเอกสาร ${dateThai}</div>
+
+          <h1>แบบฟอร์มขอยืมทรัพย์สินของบริษัท</h1>
+
+          <div class="sec-title"><span class="sec-num">1</span> ข้อมูลผู้ยืม</div>
+          <div class="grid2">
+            <div class="row"><span class="label">ชื่อ-สกุล</span> ${borrowerName}</div>
+            <div class="row"><span class="label">ตำแหน่ง</span> ${position || '-'}</div>
+            <div class="row"><span class="label">แผนก</span> ${department || '-'}</div>
+            <div class="row"><span class="label">สาขา</span> ${branch ? branch.name : '-'}</div>
+            <div class="row"><span class="label">เบอร์โทร</span> ${phone || '-'}</div>
+            <div class="row"><span class="label">วัตถุประสงค์</span> ${purpose || '-'}</div>
+          </div>
+
+          <div class="sec-title"><span class="sec-num">2</span> รายละเอียดทรัพย์สินที่ขอยืม</div>
+          <table class="assets">
+            <thead><tr><th style="width:34px;text-align:center">ลำดับ</th><th style="width:150px">รหัสทรัพย์สิน</th><th>ชื่อทรัพย์สิน</th><th style="width:60px;text-align:center">จำนวน</th><th style="width:110px;text-align:center">สภาพก่อนยืม</th></tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+
+          <div class="sec-title"><span class="sec-num">3</span> กำหนดระยะเวลายืม–คืน</div>
+          <div class="period-box">
+            <div><b>วันที่ยืม:</b> ${fmtThaiDate(startDate)}</div>
+            <div><b>กำหนดคืนภายในวันที่:</b> ${fmtThaiDate(endDate)}</div>
+          </div>
+
+          <div class="sec-title"><span class="sec-num">4</span> ข้อตกลงและเงื่อนไขการดูแลรักษาและรับผิดชอบ</div>
+          <div class="terms-box">${termsHtml}</div>
+
+          <div class="sign">
+            <div class="sign-box">
+              <div class="sign-slot"></div>
+              <div class="sign-line">${borrowerName}</div>
+              <div class="sign-role">ผู้ยืม${position ? ' · ' + position : ''}</div>
+              <div class="sign-date">วันที่ ............/............/............</div>
+            </div>
+            <div class="sign-box">
+              <div class="sign-slot"></div>
+              <div class="sign-line">${approver ? `${approver.firstName} ${approver.lastName}` : '............................................'}</div>
+              <div class="sign-role">ผู้อนุมัติ${approver ? ' · ' + (approver.position || 'ผู้จัดการสาขา') : ' · ผู้จัดการสาขา'}</div>
+              <div class="sign-date">วันที่ ............/............/............</div>
+            </div>
+            <div class="sign-box">
+              <div class="sign-slot"></div>
+              <div class="sign-line">${returner ? `${returner.firstName} ${returner.lastName}` : '............................................'}</div>
+              <div class="sign-role">ผู้รับคืนทรัพย์สิน · ฝ่าย IT</div>
+              <div class="sign-date">วันที่ ............/............/............</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <${S}>
+        function downloadPDF() {
+          var el = document.getElementById('borrow-page');
+          var wrap = el.parentElement;
+          var prev = { minHeight: el.style.minHeight, boxShadow: el.style.boxShadow, margin: el.style.margin };
+          var prevWrap = { padding: wrap.style.padding, justifyContent: wrap.style.justifyContent, display: wrap.style.display };
+          var prevBodyBg = document.body.style.background;
+          el.style.minHeight = 'auto';
+          el.style.boxShadow = 'none';
+          el.style.margin = '0';
+          wrap.style.padding = '0';
+          wrap.style.display = 'block';
+          document.body.style.background = '#fff';
+          window.scrollTo(0, 0);
+          var opt = {
+            margin: 0,
+            filename: '${fileName}.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+          };
+          var restore = function() {
+            el.style.minHeight = prev.minHeight;
+            el.style.boxShadow = prev.boxShadow;
+            el.style.margin = prev.margin;
+            wrap.style.padding = prevWrap.padding;
+            wrap.style.justifyContent = prevWrap.justifyContent;
+            wrap.style.display = prevWrap.display;
+            document.body.style.background = prevBodyBg;
+          };
+          if (window.html2pdf) {
+            window.html2pdf().set(opt).from(el).save().then(restore).catch(restore);
+          } else {
+            restore();
+            alert('กำลังโหลดตัวสร้าง PDF กรุณาลองใหม่อีกครั้ง');
+          }
+        }
+      </${S}>
+    </body></html>`);
+  win.document.close();
+};
+
 // ค่าเริ่มต้นของประเภทการลา — แก้ไขผ่านหน้า "ตั้งค่า → ประเภทการลา" ได้
 const DEFAULT_LEAVE_TYPES = [
   { id: 'sick',     label: 'ลาป่วย',           max: 30, color: '#EF4444' },
@@ -7280,8 +7475,282 @@ const genAssetCode = (branchId, catCode, existingAssets) => {
   return prefix + String(maxNum + 1).padStart(4, '0');
 };
 
+/* =============================================================
+   แบบฟอร์มขอยืมทรัพย์สินของบริษัท (Modal)
+   ============================================================= */
+const AssetBorrowFormModal = ({ open, onClose, assets, employees, branches, departments, settings }) => {
+  const [borrowerId, setBorrowerId] = useState('');
+  const [purpose, setPurpose] = useState('');
+  const [items, setItems] = useState([]); // [{assetId, code, name, qty, condition}]
+  const [addAssetId, setAddAssetId] = useState('');
+  const [assetSearch, setAssetSearch] = useState('');
+  const todayStr = new Date().toISOString().split('T')[0];
+  const in7 = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+  const [startDate, setStartDate] = useState(todayStr);
+  const [endDate, setEndDate] = useState(in7);
+  const [terms, setTerms] = useState(ASSET_BORROW_TERMS_DEFAULT);
+  const [approverId, setApproverId] = useState('');
+  const [returnerId, setReturnerId] = useState('');
+
+  const activeEmployees = useMemo(
+    () => (employees || []).filter(e => e.status !== 'inactive')
+      .slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true })),
+    [employees]
+  );
+  const borrower = useMemo(() => activeEmployees.find(e => e.id === borrowerId) || null, [activeEmployees, borrowerId]);
+  const branch = useMemo(() => branches.find(b => b.id === (borrower && borrower.branchId)) || null, [branches, borrower]);
+
+  // ทรัพย์สินที่พนักงานคนนี้ถือครองอยู่ในระบบ (แท็กอัตโนมัติ)
+  const heldAssets = useMemo(
+    () => (assets || []).filter(a => borrowerId && a.assignedTo === borrowerId),
+    [assets, borrowerId]
+  );
+
+  // ทุกครั้งที่เปลี่ยนผู้ยืม: แท็กทรัพย์สินที่ถือครองอยู่ + auto-select ผู้อนุมัติ/ผู้รับคืน
+  useEffect(() => {
+    if (!open) return;
+    if (borrower) {
+      setItems(heldAssets.map(a => ({ assetId: a.id, code: a.code, name: a.name, qty: 1, condition: a.condition || 'ดี' })));
+      const mgr = activeEmployees.find(e => e.branchId === borrower.branchId && e.position === 'ผู้จัดการ' && e.id !== borrower.id);
+      setApproverId(mgr ? mgr.id : '');
+    } else {
+      setItems([]);
+      setApproverId('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [borrowerId, open]);
+
+  // ผู้จัดการสาขาทั้งหมด (สำหรับให้เลือกผู้อนุมัติเอง หากต้องการเปลี่ยน)
+  const managerOptions = useMemo(
+    () => activeEmployees.filter(e => e.position === 'ผู้จัดการ'),
+    [activeEmployees]
+  );
+  // พนักงานฝ่าย IT (ผู้รับคืนทรัพย์สิน)
+  const itOptions = useMemo(
+    () => activeEmployees.filter(e => e.department === 'ฝ่าย IT'),
+    [activeEmployees]
+  );
+  useEffect(() => {
+    if (open && !returnerId && itOptions.length) setReturnerId(itOptions[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, itOptions]);
+
+  // รีเซ็ตฟอร์มเมื่อเปิดใหม่
+  useEffect(() => {
+    if (open) {
+      setBorrowerId(''); setPurpose(''); setItems([]); setAddAssetId(''); setAssetSearch('');
+      setStartDate(todayStr); setEndDate(in7); setTerms(ASSET_BORROW_TERMS_DEFAULT); setApproverId(''); setReturnerId('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const addableAssets = useMemo(() => {
+    const usedIds = new Set(items.map(it => it.assetId));
+    let list = (assets || []).filter(a => !usedIds.has(a.id));
+    if (assetSearch) {
+      const q = assetSearch.toLowerCase();
+      list = list.filter(a => [a.code, a.name, a.brand].some(v => String(v || '').toLowerCase().includes(q)));
+    }
+    return list.slice(0, 200);
+  }, [assets, items, assetSearch]);
+
+  if (!open) return null;
+
+  const addItem = () => {
+    const a = (assets || []).find(x => x.id === addAssetId);
+    if (!a) return;
+    setItems(prev => [...prev, { assetId: a.id, code: a.code, name: a.name, qty: 1, condition: a.condition || 'ดี' }]);
+    setAddAssetId(''); setAssetSearch('');
+  };
+  const removeItem = (assetId) => setItems(prev => prev.filter(it => it.assetId !== assetId));
+  const updateItem = (assetId, patch) => setItems(prev => prev.map(it => it.assetId === assetId ? { ...it, ...patch } : it));
+
+  const approver = activeEmployees.find(e => e.id === approverId) || null;
+  const returner = activeEmployees.find(e => e.id === returnerId) || null;
+
+  const handlePrint = () => {
+    if (!borrower) return alert('กรุณาเลือกผู้ยืม');
+    if (!items.length) return alert('กรุณาเลือกทรัพย์สินอย่างน้อย 1 รายการ');
+    printAssetBorrowForm({
+      borrower, branch, position: borrower.position, department: borrower.department, phone: borrower.phone,
+      purpose, items, startDate, endDate, terms, approver, returner,
+      docNo: `AB-${toYMD(new Date()).replace(/-/g, '')}-${borrower.id}`,
+    }, settings);
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="แบบฟอร์มขอยืมทรัพย์สินของบริษัท" size="xl">
+      <div className="space-y-6">
+        {/* 1. ข้อมูลผู้ยืม */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-md bg-flow-600 text-white text-[11px] flex items-center justify-center font-bold">1</span>
+            <h4 className="font-display font-semibold text-ink-800">ข้อมูลผู้ยืม</h4>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">เลือกพนักงานผู้ยืม</label>
+              <Select value={borrowerId} onChange={(e) => setBorrowerId(e.target.value)}>
+                <option value="">— เลือกพนักงาน —</option>
+                {activeEmployees.map(e => (
+                  <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName} ({e.position || '-'} · {e.department || '-'})</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ตำแหน่ง</label>
+              <Input value={borrower ? (borrower.position || '-') : ''} disabled placeholder="—" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">แผนก</label>
+              <Input value={borrower ? (borrower.department || '-') : ''} disabled placeholder="—" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">เบอร์โทร</label>
+              <Input value={borrower ? (borrower.phone || '-') : ''} disabled placeholder="—" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+              <Input value={branch ? branch.name : '-'} disabled placeholder="—" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">วัตถุประสงค์การยืม</label>
+              <Input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="เช่น ใช้ปฏิบัติงานนอกสถานที่, ใช้สำหรับโครงการ..." />
+            </div>
+          </div>
+        </div>
+
+        {/* 2. รายการทรัพย์สิน */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-md bg-flow-600 text-white text-[11px] flex items-center justify-center font-bold">2</span>
+            <h4 className="font-display font-semibold text-ink-800">รายละเอียดทรัพย์สินที่ขอยืม</h4>
+            {borrowerId && <span className="text-xs text-ink-400">(แท็กจากทรัพย์สินที่พนักงานถือครองอยู่โดยอัตโนมัติ — ลบได้หากไม่ต้องการ)</span>}
+          </div>
+
+          <Card className="overflow-hidden mb-3">
+            {items.length === 0 ? (
+              <div className="p-6 text-center text-sm text-ink-400">ยังไม่มีรายการทรัพย์สิน — เลือกด้านล่างเพื่อเพิ่ม</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-ink-50 text-ink-600 text-xs uppercase">
+                      <th className="text-left px-3 py-2">รหัส</th>
+                      <th className="text-left px-3 py-2">ชื่อทรัพย์สิน</th>
+                      <th className="text-center px-3 py-2 w-24">จำนวน</th>
+                      <th className="text-center px-3 py-2 w-36">สภาพก่อนยืม</th>
+                      <th className="w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map(it => (
+                      <tr key={it.assetId} className="border-t border-ink-100">
+                        <td className="px-3 py-2 font-mono text-xs text-ink-500">{it.code}</td>
+                        <td className="px-3 py-2 text-ink-800">{it.name}</td>
+                        <td className="px-3 py-2">
+                          <input type="number" min={1} value={it.qty}
+                            onChange={(e) => updateItem(it.assetId, { qty: Math.max(1, Number(e.target.value) || 1) })}
+                            className="w-16 mx-auto block text-center border border-ink-200 rounded-lg py-1 text-sm" />
+                        </td>
+                        <td className="px-3 py-2">
+                          <select value={it.condition}
+                            onChange={(e) => updateItem(it.assetId, { condition: e.target.value })}
+                            className="w-full border border-ink-200 rounded-lg py-1 text-sm px-1">
+                            {ASSET_CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button onClick={() => removeItem(it.assetId)} className="text-ink-400 hover:text-red-500">
+                            <Icon name="trash" className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
+          <div className="flex flex-col md:flex-row gap-2">
+            <Input icon="search" placeholder="ค้นหาทรัพย์สินเพื่อเพิ่ม (รหัส/ชื่อ/ยี่ห้อ)..." value={assetSearch}
+              onChange={(e) => setAssetSearch(e.target.value)} className="md:flex-1" />
+            <Select value={addAssetId} onChange={(e) => setAddAssetId(e.target.value)} className="md:w-72">
+              <option value="">— เลือกทรัพย์สินที่จะเพิ่ม —</option>
+              {addableAssets.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+            </Select>
+            <Button type="button" variant="outline" icon="plus" onClick={addItem} disabled={!addAssetId}>เพิ่มรายการ</Button>
+          </div>
+        </div>
+
+        {/* 3. ระยะเวลายืม-คืน */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-md bg-flow-600 text-white text-[11px] flex items-center justify-center font-bold">3</span>
+            <h4 className="font-display font-semibold text-ink-800">กำหนดระยะเวลายืม–คืน</h4>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่ยืม</label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">กำหนดคืนภายในวันที่</label>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {/* 4. ข้อตกลงและเงื่อนไข */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-md bg-flow-600 text-white text-[11px] flex items-center justify-center font-bold">4</span>
+            <h4 className="font-display font-semibold text-ink-800">ข้อตกลงและเงื่อนไขการดูแลรักษาและรับผิดชอบ</h4>
+          </div>
+          <Textarea rows={6} value={terms} onChange={(e) => setTerms(e.target.value)} />
+        </div>
+
+        {/* 5. ลงนาม 3 ฝ่าย */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-md bg-flow-600 text-white text-[11px] flex items-center justify-center font-bold">5</span>
+            <h4 className="font-display font-semibold text-ink-800">ผู้ลงนาม 3 ฝ่าย</h4>
+          </div>
+          <div className="grid md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้ยืม</label>
+              <Input value={borrower ? `${borrower.firstName} ${borrower.lastName}` : ''} disabled placeholder="— เลือกผู้ยืมด้านบน —" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้อนุมัติ (ผู้จัดการสาขา)</label>
+              <Select value={approverId} onChange={(e) => setApproverId(e.target.value)}>
+                <option value="">— เลือกผู้อนุมัติ —</option>
+                {managerOptions.map(e => <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName} ({branches.find(b => b.id === e.branchId)?.name || '-'})</option>)}
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้รับคืนทรัพย์สิน (ฝ่าย IT)</label>
+              <Select value={returnerId} onChange={(e) => setReturnerId(e.target.value)}>
+                <option value="">— เลือกผู้รับคืน —</option>
+                {itOptions.map(e => <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName}</option>)}
+              </Select>
+              {itOptions.length === 0 && <div className="text-xs text-red-500 mt-1">ไม่พบพนักงานฝ่าย IT ในระบบ</div>}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
+          <Button variant="outline" onClick={onClose}>ยกเลิก</Button>
+          <Button icon="receipt" onClick={handlePrint}>พิมพ์เอกสาร</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 const AssetsPage = () => {
-  const { assets, setAssets, branches, employees, departments, user, addToast } = useApp();
+  const { assets, setAssets, branches, employees, departments, user, addToast, settings } = useApp();
   const [search, setSearch] = useState('');
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterCat, setFilterCat] = useState('all');
@@ -7291,6 +7760,7 @@ const AssetsPage = () => {
   const [viewing, setViewing] = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [showBorrowForm, setShowBorrowForm] = useState(false);
 
   const canEdit = user.role === 'admin' || user.role === 'hr';
 
@@ -7358,6 +7828,7 @@ const AssetsPage = () => {
         action={
           <div className="flex gap-2">
             <Button variant="outline" icon="target" onClick={() => setShowScanner(true)}>สแกน QR</Button>
+            <Button variant="outline" icon="receipt" onClick={() => setShowBorrowForm(true)}>แบบฟอร์มขอยืมทรัพย์สิน</Button>
             {canEdit && <>
               <Button variant="outline" icon="upload" onClick={() => setShowImport(true)}>นำเข้า Excel</Button>
               <Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มทรัพย์สิน</Button></>}
@@ -7497,6 +7968,16 @@ const AssetsPage = () => {
         branches={branches}
         departments={departments}
         employees={employees}
+      />
+
+      <AssetBorrowFormModal
+        open={showBorrowForm}
+        onClose={() => setShowBorrowForm(false)}
+        assets={assets}
+        employees={employees}
+        branches={branches}
+        departments={departments}
+        settings={settings}
       />
 
       <AssetProfileModal
