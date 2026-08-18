@@ -744,6 +744,7 @@ const api = {
         shifts:        settings.shifts || company.shifts || [],
         holidays:      settings.holidays || company.holidays || [],
         payrollCycles: settings.payrollCycles || company.payrollCycles || [],
+        tickets:       settings.tickets || company.tickets || [],
       };
       return {
         employees:   (employees || []).map(r => fromDb('employees', r)),
@@ -2037,6 +2038,7 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
     { id: 'warnings',   label: 'ใบเตือน',          icon: 'info' },
     { id: 'calendar',   label: 'ปฏิทินทีม',         icon: 'calendar' },
     { id: 'assets',     label: 'ทรัพย์สิน',         icon: 'box' },
+    { id: 'tickets',    label: 'แจ้งซ่อม IT', icon: 'wrench' },
     { id: 'payroll',    label: 'เงินเดือน',         icon: 'tag' },
     { id: 'kpi',        label: 'ประเมิน KPI',       icon: 'target' },
     { id: 'expenses',   label: 'เบิกค่าใช้จ่าย',     icon: 'receipt' },
@@ -2054,9 +2056,9 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
     if (user.role === 'employee') {
       // ผู้จัดการภาค (regional) เห็นเพิ่ม: การเข้า-ออกงาน + การประเมิน KPI
       if (isRegionalManager) {
-        return ['dashboard','checkin','employees','attendance','shifts','leaves','ot','warnings','calendar','kpi','expenses','policies','myinfo'].includes(m.id);
+        return ['dashboard','checkin','employees','attendance','shifts','leaves','ot','warnings','calendar','kpi','expenses','policies','myinfo','tickets'].includes(m.id);
       }
-      return ['dashboard','checkin','leaves','ot','calendar','expenses','policies','myinfo'].includes(m.id);
+      return ['dashboard','checkin','leaves','ot','calendar','expenses','policies','myinfo','tickets'].includes(m.id);
     }
     if (user.role === 'manager')  return !['settings','branches','myinfo'].includes(m.id);
     // admin/hr เห็นทุกอย่างยกเว้น myinfo (มีหน้าพนักงานเต็มแล้ว)
@@ -2314,6 +2316,41 @@ const Topbar = ({ title, subtitle, action }) => {
           title: `มีพนักงานเข้าเกณฑ์ใบเตือน ${entered.length} คน`,
           desc: `มาสายตั้งแต่ ${threshold} ครั้ง/เดือน — คลิกเพื่อดู`,
           page: 'warnings',
+        });
+      }
+    }
+
+    // แจ้งเตือน Ticket IT: งานที่ยังไม่มีผู้รับผิดชอบ + งานที่เกิน SLA (เฉพาะ admin/hr/พนักงานฝ่าย IT)
+    {
+      const isITStaff = myEmp && myEmp.department === 'ฝ่าย IT';
+      if (user.role === 'admin' || user.role === 'hr' || isITStaff) {
+        const allTickets = (settings && settings.tickets) || [];
+        const openTickets = allTickets.filter(t => TICKET_OPEN_STATUSES.includes(t.status));
+        const unassigned = openTickets.filter(t => !t.assigneeId);
+        if (unassigned.length > 0) {
+          list.push({
+            id: 'ticket-unassigned', icon: 'wrench', color: 'gold',
+            title: `Ticket ยังไม่มีผู้รับผิดชอบ ${unassigned.length} รายการ`,
+            desc: 'คลิกเพื่อไปหน้าแจ้งซ่อม IT', page: 'tickets',
+          });
+        }
+        const overdue = openTickets.filter(t => getTicketSla(t).key === 'overdue');
+        if (overdue.length > 0) {
+          list.push({
+            id: 'ticket-overdue', icon: 'bell', color: 'red',
+            title: `Ticket เกินกำหนด SLA ${overdue.length} รายการ`,
+            desc: 'คลิกเพื่อไปหน้าแจ้งซ่อม IT', page: 'tickets',
+          });
+        }
+      }
+      // แจ้งเตือนผู้แจ้ง: ticket ของตัวเองมีความคืบหน้า (เสร็จสิ้น รอปิดงาน)
+      const myPendingClose = ((settings && settings.tickets) || [])
+        .filter(t => t.requesterId === user.empId && t.status === 'resolved');
+      if (myPendingClose.length > 0) {
+        list.push({
+          id: 'ticket-resolved-mine', icon: 'check', color: 'green',
+          title: `Ticket ของคุณเสร็จสิ้นแล้ว ${myPendingClose.length} รายการ — รอยืนยันปิดงาน`,
+          desc: 'คลิกเพื่อไปหน้าแจ้งซ่อม IT', page: 'tickets',
         });
       }
     }
@@ -11314,6 +11351,650 @@ const calcOffsitePerDiem = (level, hours) => {
   return rate;                           // เกิน 8 ชม. = 100%
 };
 
+/* =============================================================
+   TICKET / IT SUPPORT MODULE — แจ้งปัญหา ติดตามสถานะ และ SLA
+   ============================================================= */
+const TICKET_CATEGORIES = [
+  'ฮาร์ดแวร์ / อุปกรณ์คอมพิวเตอร์',
+  'ซอฟต์แวร์ / โปรแกรม',
+  'เครือข่าย / อินเทอร์เน็ต',
+  'ระบบงาน / แอปพลิเคชันบริษัท',
+  'บัญชีผู้ใช้ / สิทธิ์การเข้าถึง',
+  'เครื่องพิมพ์ / อุปกรณ์ต่อพ่วง',
+  'อีเมล / การสื่อสาร',
+  'อื่นๆ',
+];
+
+const TICKET_PRIORITIES = [
+  { id: 'critical', label: 'วิกฤต',   color: 'red',    slaHours: 1  },
+  { id: 'high',     label: 'สูง',     color: 'orange', slaHours: 3  },
+  { id: 'medium',   label: 'ปานกลาง', color: 'yellow', slaHours: 8  },
+  { id: 'low',      label: 'ต่ำ',     color: 'blue',   slaHours: 24 },
+];
+const TICKET_PRIORITY_MAP = (() => {
+  const m = {}; TICKET_PRIORITIES.forEach(p => { m[p.id] = p; }); return m;
+})();
+
+const TICKET_STATUSES = [
+  { id: 'open',         label: 'เปิดเรื่อง',         color: 'gray'   },
+  { id: 'acknowledged',  label: 'รับเรื่องแล้ว',      color: 'blue'   },
+  { id: 'in_progress',  label: 'กำลังดำเนินการ',     color: 'cyan'   },
+  { id: 'waiting',      label: 'รอข้อมูลเพิ่มเติม',   color: 'purple' },
+  { id: 'resolved',     label: 'เสร็จสิ้น',          color: 'green'  },
+  { id: 'closed',       label: 'ปิดงาน',            color: 'gray'   },
+  { id: 'cancelled',    label: 'ยกเลิก',            color: 'red'    },
+];
+const TICKET_STATUS_MAP = (() => {
+  const m = {}; TICKET_STATUSES.forEach(s => { m[s.id] = s; }); return m;
+})();
+const TICKET_OPEN_STATUSES = ['open', 'acknowledged', 'in_progress', 'waiting'];
+
+// สร้างเลขที่ ticket อัตโนมัติ IT-00001, IT-00002, ...
+const genTicketCode = (existing) => {
+  const n = ((existing || []).length) + 1;
+  return `IT-${String(n).padStart(5, '0')}`;
+};
+
+// คำนวณกำหนดเวลาครบ SLA จากเวลาที่แจ้ง + priority
+const calcTicketDueAt = (createdAt, priorityId) => {
+  const hrs = (TICKET_PRIORITY_MAP[priorityId] || TICKET_PRIORITY_MAP.medium).slaHours;
+  const d = new Date(createdAt);
+  d.setHours(d.getHours() + hrs);
+  return d.toISOString();
+};
+
+// แปลง ms เป็นข้อความไทยอ่านง่าย เช่น "2 วัน 3 ชม." / "45 นาที"
+const fmtDuration = (ms) => {
+  const abs = Math.max(0, Math.abs(ms));
+  const totalMin = Math.round(abs / 60000);
+  const days = Math.floor(totalMin / 1440);
+  const hrs = Math.floor((totalMin % 1440) / 60);
+  const mins = totalMin % 60;
+  const parts = [];
+  if (days) parts.push(`${days} วัน`);
+  if (hrs) parts.push(`${hrs} ชม.`);
+  if (!days && mins) parts.push(`${mins} นาที`);
+  return parts.length ? parts.join(' ') : 'ไม่กี่นาที';
+};
+
+// สถานะ SLA ปัจจุบันของ ticket — ใช้ทั้งแสดงผลและกรอง/แจ้งเตือน
+const getTicketSla = (ticket) => {
+  if (!ticket) return { key: 'na', label: '-', color: 'gray' };
+  if (ticket.status === 'cancelled') return { key: 'na', label: 'ยกเลิกแล้ว', color: 'gray' };
+  // SLA เริ่มนับตั้งแต่ IT รับเรื่อง (acceptedAt) — ยังไม่รับเรื่อง = ยังไม่เริ่มนับเวลา
+  if (!ticket.acceptedAt || !ticket.dueAt) {
+    return { key: 'pending', label: 'รอ IT รับเรื่อง (ยังไม่เริ่มนับ SLA)', color: 'gray' };
+  }
+  const due = new Date(ticket.dueAt).getTime();
+
+  const finishedAt = ticket.status === 'closed' ? (ticket.closedAt || ticket.resolvedAt)
+    : ticket.status === 'resolved' ? ticket.resolvedAt : null;
+  if (finishedAt) {
+    const finishedMs = new Date(finishedAt).getTime();
+    if (finishedMs <= due) return { key: 'met', label: 'ตรงเวลา SLA', color: 'green' };
+    return { key: 'breached', label: `เกิน SLA (${fmtDuration(finishedMs - due)})`, color: 'red' };
+  }
+
+  const now = Date.now();
+  if (now > due) return { key: 'overdue', label: `เกินกำหนด ${fmtDuration(now - due)}`, color: 'red' };
+  const remain = due - now;
+  const totalWindow = due - new Date(ticket.acceptedAt).getTime();
+  if (remain < Math.min(2 * 3600000, Math.max(totalWindow * 0.2, 0))) {
+    return { key: 'near', label: `ใกล้ครบกำหนด (เหลือ ${fmtDuration(remain)})`, color: 'yellow' };
+  }
+  return { key: 'ontrack', label: `ปกติ (เหลือ ${fmtDuration(remain)})`, color: 'green' };
+};
+
+const fmtTicketDate = (iso) => {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    return `${d.getDate()} ${THAI_MONTHS[d.getMonth()].slice(0, 3)} ${(d.getFullYear() + 543) % 100} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  } catch { return '-'; }
+};
+
+/* ---------- สร้างแจ้งปัญหาใหม่ ---------- */
+const CreateTicketModal = ({ open, onClose, employees, branches, assets, user, onCreate }) => {
+  const activeEmployees = useMemo(
+    () => (employees || []).filter(e => e.status !== 'inactive')
+      .slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true })),
+    [employees]
+  );
+  const myEmp = activeEmployees.find(e => e.id === user.empId) || null;
+  const canPickRequester = user.role === 'admin' || user.role === 'hr';
+
+  const [requesterId, setRequesterId] = useState('');
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState(TICKET_CATEGORIES[0]);
+  const [priority, setPriority] = useState('medium');
+  const [description, setDescription] = useState('');
+  const [relatedAssetId, setRelatedAssetId] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      setRequesterId(myEmp ? myEmp.id : (activeEmployees[0]?.id || ''));
+      setTitle(''); setCategory(TICKET_CATEGORIES[0]); setPriority('medium');
+      setDescription(''); setRelatedAssetId('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  if (!open) return null;
+
+  const requester = activeEmployees.find(e => e.id === requesterId) || null;
+  const branch = branches.find(b => b.id === (requester && requester.branchId)) || null;
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!requester) return alert('กรุณาเลือกผู้แจ้ง');
+    if (!title.trim()) return alert('กรุณาระบุหัวข้อปัญหา');
+    onCreate({ requester, branch, title: title.trim(), category, priority, description: description.trim(), relatedAssetId });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="แจ้งปัญหา / ขอความช่วยเหลือจาก IT" size="lg">
+      <form onSubmit={submit} className="space-y-4">
+        {canPickRequester && (
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้แจ้ง</label>
+            <Select value={requesterId} onChange={(e) => setRequesterId(e.target.value)}>
+              {activeEmployees.map(e => <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName}</option>)}
+            </Select>
+          </div>
+        )}
+        <div className="grid md:grid-cols-2 gap-3 text-sm">
+          <div className="row"><span className="text-ink-500">ผู้แจ้ง:</span> <b>{requester ? `${requester.firstName} ${requester.lastName}` : '-'}</b></div>
+          <div className="row"><span className="text-ink-500">แผนก / สาขา:</span> <b>{requester ? (requester.department || '-') : '-'} · {branch ? branch.name : '-'}</b></div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">หัวข้อปัญหา</label>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="เช่น คอมพิวเตอร์เปิดไม่ติด, เข้าใช้งานระบบไม่ได้..." required />
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">หมวดหมู่</label>
+            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+              {TICKET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ความสำคัญ (กำหนด SLA)</label>
+            <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {TICKET_PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label} — ตอบสนองภายใน {p.slaHours} ชม.</option>)}
+            </Select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">ทรัพย์สินที่เกี่ยวข้อง (ถ้ามี)</label>
+          <Select value={relatedAssetId} onChange={(e) => setRelatedAssetId(e.target.value)}>
+            <option value="">— ไม่ระบุ —</option>
+            {(assets || []).map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+          </Select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-ink-700 mb-1.5">รายละเอียดปัญหา</label>
+          <Textarea rows={5} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="อธิบายอาการ/ปัญหาที่พบโดยละเอียด เพื่อให้ทีม IT ช่วยเหลือได้รวดเร็วขึ้น" />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
+          <Button type="button" variant="outline" onClick={onClose}>ยกเลิก</Button>
+          <Button type="submit" icon="plus">ส่งเรื่องแจ้งปัญหา</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+/* ---------- รายละเอียด / ติดตามสถานะ ticket ---------- */
+const TicketDetailModal = ({ ticket, onClose, employees, branches, assets, user, canManage, isAdmin, itOptions, onUpdate, onDelete }) => {
+  const [comment, setComment] = useState('');
+  const [assigneeSel, setAssigneeSel] = useState('');
+
+  useEffect(() => {
+    setComment('');
+    setAssigneeSel(ticket ? (ticket.assigneeId || '') : '');
+  }, [ticket && ticket.id]);
+
+  if (!ticket) return null;
+
+  const empName = (id) => {
+    const e = employees.find(x => x.id === id);
+    return e ? `${e.firstName} ${e.lastName}` : '-';
+  };
+  const requester = employees.find(e => e.id === ticket.requesterId) || null;
+  const branch = branches.find(b => b.id === ticket.branchId) || null;
+  const relatedAsset = ticket.relatedAssetId ? (assets || []).find(a => a.id === ticket.relatedAssetId) : null;
+  const priority = TICKET_PRIORITY_MAP[ticket.priority] || TICKET_PRIORITY_MAP.medium;
+  const statusInfo = TICKET_STATUS_MAP[ticket.status] || TICKET_STATUSES[0];
+  const sla = getTicketSla(ticket);
+  const isRequester = ticket.requesterId === user.empId;
+
+  const nowIso = () => new Date().toISOString();
+  const authorName = () => {
+    const e = employees.find(x => x.id === user.empId);
+    return e ? `${e.firstName} ${e.lastName}` : (user.name || user.username);
+  };
+
+  const pushComment = (patch, noteText) => {
+    const comments = [...(ticket.comments || [])];
+    if (noteText && noteText.trim()) {
+      comments.push({ id: `C${Date.now()}`, byId: user.empId || user.username, byName: authorName(), at: nowIso(), text: noteText.trim() });
+    }
+    onUpdate({ ...ticket, ...patch, comments });
+  };
+
+  const handleAssign = () => {
+    if (!assigneeSel) return alert('กรุณาเลือกผู้รับผิดชอบ');
+    const patch = { assigneeId: assigneeSel };
+    if (ticket.status === 'open') {
+      // IT รับเรื่อง → เริ่มนับเวลา SLA ตั้งแต่จุดนี้ ตามระดับความสำคัญ
+      const acceptedAt = nowIso();
+      patch.status = 'acknowledged';
+      patch.acceptedAt = acceptedAt;
+      patch.dueAt = calcTicketDueAt(acceptedAt, ticket.priority);
+    }
+    pushComment(patch, `มอบหมายงานให้ ${empName(assigneeSel)}`);
+  };
+  const handleStart = () => pushComment({ status: 'in_progress' }, 'เริ่มดำเนินการแก้ไขปัญหา');
+  const handleWaiting = () => {
+    if (!comment.trim()) return alert('กรุณาระบุข้อมูลที่ต้องการเพิ่มเติมในช่องบันทึก');
+    pushComment({ status: 'waiting' }, comment);
+    setComment('');
+  };
+  const handleResolve = () => {
+    pushComment({ status: 'resolved', resolvedAt: nowIso() }, comment || 'ดำเนินการแก้ไขเรียบร้อยแล้ว');
+    setComment('');
+  };
+  const handleReopen = () => pushComment({ status: 'in_progress' }, 'เปิดงานอีกครั้ง — ปัญหายังไม่ได้รับการแก้ไขสมบูรณ์');
+  const handleClose = () => pushComment({ status: 'closed', closedAt: nowIso() }, 'ยืนยันปิดงาน');
+  const handleCancel = () => {
+    if (!confirm('ยืนยันยกเลิก ticket นี้?')) return;
+    pushComment({ status: 'cancelled' }, comment || 'ยกเลิกโดยผู้แจ้ง');
+    setComment('');
+  };
+  const handleAddCommentOnly = () => {
+    if (!comment.trim()) return;
+    pushComment({}, comment);
+    setComment('');
+  };
+  const handlePriorityChange = (newPriority) => {
+    // ถ้า IT รับเรื่องแล้ว ให้คำนวณกำหนด SLA ใหม่จากเวลาที่รับเรื่อง (acceptedAt) ตามความสำคัญใหม่
+    // ถ้ายังไม่รับเรื่อง ยังไม่ต้องคำนวณ SLA (จะคำนวณตอนรับเรื่อง)
+    const patch = { priority: newPriority };
+    if (ticket.acceptedAt) patch.dueAt = calcTicketDueAt(ticket.acceptedAt, newPriority);
+    pushComment(patch, `ปรับความสำคัญเป็น "${TICKET_PRIORITY_MAP[newPriority].label}"`);
+  };
+  const handleDelete = () => {
+    if (!confirm(`ยืนยันลบ ticket "${ticket.code} - ${ticket.title}" อย่างถาวร? การลบไม่สามารถย้อนกลับได้`)) return;
+    onDelete(ticket.id);
+  };
+
+  return (
+    <Modal open={!!ticket} onClose={onClose} title={`${ticket.code} — ${ticket.title}`} size="lg">
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+            <Badge color={priority.color}>ความสำคัญ: {priority.label}</Badge>
+            <Badge color={sla.color}>{sla.label}</Badge>
+          </div>
+          {isAdmin && (
+            <Button type="button" size="sm" variant="ghost" icon="trash" className="text-red-500" onClick={handleDelete}>
+              ลบ Ticket นี้
+            </Button>
+          )}
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-3 text-sm bg-ink-50 rounded-xl p-4">
+          <div><span className="text-ink-500">ผู้แจ้ง:</span> <b>{requester ? `${requester.firstName} ${requester.lastName}` : ticket.requesterId}</b></div>
+          <div><span className="text-ink-500">แผนก / สาขา:</span> <b>{requester?.department || '-'} · {branch ? branch.name : '-'}</b></div>
+          <div><span className="text-ink-500">หมวดหมู่:</span> <b>{ticket.category}</b></div>
+          <div><span className="text-ink-500">ทรัพย์สินที่เกี่ยวข้อง:</span> <b>{relatedAsset ? `${relatedAsset.code} - ${relatedAsset.name}` : '-'}</b></div>
+          <div><span className="text-ink-500">แจ้งเมื่อ:</span> <b>{fmtTicketDate(ticket.createdAt)}</b></div>
+          <div><span className="text-ink-500">กำหนด SLA ภายใน:</span> <b>{fmtTicketDate(ticket.dueAt)}</b></div>
+          <div><span className="text-ink-500">ผู้รับผิดชอบ:</span> <b>{ticket.assigneeId ? empName(ticket.assigneeId) : 'ยังไม่มอบหมาย'}</b></div>
+          <div><span className="text-ink-500">เสร็จสิ้น/ปิดงานเมื่อ:</span> <b>{fmtTicketDate(ticket.closedAt || ticket.resolvedAt)}</b></div>
+        </div>
+
+        <div>
+          <div className="text-sm font-medium text-ink-700 mb-1.5">รายละเอียดปัญหา</div>
+          <div className="text-sm text-ink-700 bg-white border border-ink-100 rounded-xl p-3 whitespace-pre-wrap">{ticket.description || '-'}</div>
+        </div>
+
+        {/* จัดการโดยทีม IT / admin / hr */}
+        {canManage && TICKET_OPEN_STATUSES.includes(ticket.status) && (
+          <div className="bg-flow-50 border border-flow-100 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Icon name="wrench" className="w-4 h-4 text-flow-600" />
+              <h4 className="font-medium text-ink-800">การจัดการของทีม IT</h4>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-ink-600 mb-1">มอบหมาย / เปลี่ยนผู้รับผิดชอบ</label>
+                <div className="flex gap-2">
+                  <Select value={assigneeSel} onChange={(e) => setAssigneeSel(e.target.value)} className="flex-1">
+                    <option value="">— เลือกผู้รับผิดชอบ —</option>
+                    {(itOptions || []).map(e => <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName}</option>)}
+                  </Select>
+                  <Button type="button" size="sm" variant="outline" onClick={handleAssign}>มอบหมาย</Button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-600 mb-1">ปรับความสำคัญ (SLA)</label>
+                <Select value={ticket.priority} onChange={(e) => handlePriorityChange(e.target.value)}>
+                  {TICKET_PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label} ({p.slaHours} ชม.)</option>)}
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {ticket.status === 'acknowledged' && <Button type="button" size="sm" onClick={handleStart}>เริ่มดำเนินการ</Button>}
+              {ticket.status === 'in_progress' && <Button type="button" size="sm" variant="outline" onClick={handleWaiting}>รอข้อมูลเพิ่มเติมจากผู้แจ้ง</Button>}
+              {ticket.status === 'waiting' && <Button type="button" size="sm" onClick={handleStart}>ดำเนินการต่อ</Button>}
+              {ticket.status === 'in_progress' && <Button type="button" size="sm" variant="success" icon="check" onClick={handleResolve}>ทำเครื่องหมายว่าเสร็จสิ้น</Button>}
+            </div>
+          </div>
+        )}
+
+        {/* ยืนยันปิดงาน / เปิดใหม่ — ผู้แจ้งหรือทีม IT */}
+        {ticket.status === 'resolved' && (isRequester || canManage) && (
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-emerald-800">ทีม IT ดำเนินการแก้ไขเสร็จสิ้นแล้ว กรุณาตรวจสอบและยืนยันปิดงาน</div>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={handleReopen}>ปัญหายังไม่หาย เปิดใหม่</Button>
+              <Button type="button" size="sm" variant="success" icon="check" onClick={handleClose}>ยืนยันปิดงาน</Button>
+            </div>
+          </div>
+        )}
+
+        {/* ยกเลิก — ผู้แจ้งหรือทีม IT ทำได้เมื่อยังไม่เริ่มดำเนินการ/รับเรื่อง */}
+        {['open', 'acknowledged'].includes(ticket.status) && (isRequester || canManage) && (
+          <div className="text-right">
+            <Button type="button" size="sm" variant="ghost" className="text-red-500" onClick={handleCancel}>ยกเลิก Ticket นี้</Button>
+          </div>
+        )}
+
+        {/* ไทม์ไลน์ความคืบหน้า */}
+        <div>
+          <div className="text-sm font-medium text-ink-700 mb-2">ประวัติความคืบหน้า</div>
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            {(ticket.comments || []).length === 0 && <div className="text-sm text-ink-400">ยังไม่มีความคืบหน้า</div>}
+            {(ticket.comments || []).slice().reverse().map(c => (
+              <div key={c.id} className="text-sm bg-white border border-ink-100 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-medium text-ink-800">{c.byName}</span>
+                  <span className="text-xs text-ink-400">{fmtTicketDate(c.at)}</span>
+                </div>
+                <div className="text-ink-600 whitespace-pre-wrap">{c.text}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* เพิ่มความคิดเห็น */}
+        {TICKET_OPEN_STATUSES.includes(ticket.status) && (isRequester || canManage) && (
+          <div className="flex gap-2">
+            <Input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="เพิ่มบันทึก/ความคืบหน้า..." className="flex-1" />
+            <Button type="button" variant="outline" onClick={handleAddCommentOnly}>เพิ่มบันทึก</Button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+};
+
+/* ---------- หน้ารายการ Ticket ---------- */
+const TicketsPage = () => {
+  const { employees, branches, assets, user, settings, setSettings, addToast } = useApp();
+  const tickets = (settings && settings.tickets) || [];
+
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [mineOnly, setMineOnly] = useState(false);
+  const [openCreate, setOpenCreate] = useState(false);
+  const [viewingId, setViewingId] = useState(null);
+
+  const myEmp = employees.find(e => e.id === user.empId) || null;
+  const isITStaff = !!(myEmp && myEmp.department === 'ฝ่าย IT');
+  const canManage = user.role === 'admin' || user.role === 'hr' || isITStaff;
+  const isAdmin = user.role === 'admin';
+  const itOptions = useMemo(
+    () => (employees || []).filter(e => e.department === 'ฝ่าย IT' && e.status !== 'inactive'),
+    [employees]
+  );
+
+  const saveTickets = async (list) => {
+    setSettings(s => ({ ...s, tickets: list }));
+    if (api.enabled()) {
+      try { await api.post('saveSettingsKey', { key: 'tickets', data: list }); }
+      catch (err) { addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message); }
+    }
+  };
+
+  const createTicket = ({ requester, branch, title, category, priority, description, relatedAssetId }) => {
+    const createdAt = new Date().toISOString();
+    const ticket = {
+      id: `TCK${Date.now()}`,
+      code: genTicketCode(tickets),
+      title, category, priority, description,
+      status: 'open',
+      requesterId: requester.id,
+      branchId: branch ? branch.id : (requester.branchId || ''),
+      assigneeId: '',
+      relatedAssetId: relatedAssetId || '',
+      createdAt,
+      acceptedAt: null, resolvedAt: null, closedAt: null,
+      dueAt: null, // เริ่มนับ SLA ก็ต่อเมื่อ IT รับเรื่อง (acceptedAt)
+      comments: [{ id: `C${Date.now()}`, byId: requester.id, byName: `${requester.firstName} ${requester.lastName}`, at: createdAt, text: 'เปิดเรื่องแจ้งปัญหา' }],
+    };
+    saveTickets([...tickets, ticket]);
+    addToast('success', `ส่งเรื่องแจ้งปัญหาเรียบร้อย (${ticket.code})`);
+    setOpenCreate(false);
+  };
+
+  const updateTicket = (updated) => {
+    saveTickets(tickets.map(t => t.id === updated.id ? updated : t));
+    addToast('success', 'อัปเดตสถานะเรียบร้อย');
+  };
+
+  const deleteTicket = (id) => {
+    saveTickets(tickets.filter(t => t.id !== id));
+    addToast('success', 'ลบ ticket เรียบร้อยแล้ว');
+    if (viewingId === id) setViewingId(null);
+  };
+
+  // ขอบเขตการมองเห็นตามสิทธิ์
+  const scoped = useMemo(() => tickets.filter(t => {
+    if (canManage) return true;
+    if (user.role === 'manager') return t.branchId === user.branchId || t.requesterId === user.empId;
+    return t.requesterId === user.empId;
+  }), [tickets, canManage, user]);
+
+  const visible = useMemo(() => scoped.filter(t => {
+    if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+    if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
+    if (filterCategory !== 'all' && t.category !== filterCategory) return false;
+    if (mineOnly && t.assigneeId !== user.empId) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const requester = employees.find(e => e.id === t.requesterId);
+      const requesterName = requester ? `${requester.firstName} ${requester.lastName}` : '';
+      if (![t.code, t.title, t.description, requesterName].some(v => String(v || '').toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')), [scoped, filterStatus, filterPriority, filterCategory, mineOnly, search, employees, user]);
+
+  const stats = useMemo(() => {
+    const openList = scoped.filter(t => TICKET_OPEN_STATUSES.includes(t.status));
+    const overdue = openList.filter(t => getTicketSla(t).key === 'overdue');
+    const todayStr = toYMD(new Date());
+    const closedToday = scoped.filter(t => t.status === 'closed' && toYMD(t.closedAt) === todayStr);
+    return { total: scoped.length, open: openList.length, overdue: overdue.length, closedToday: closedToday.length };
+  }, [scoped]);
+
+  const empName = (id) => {
+    const e = employees.find(x => x.id === id);
+    return e ? `${e.firstName} ${e.lastName}` : '-';
+  };
+
+  const viewing = tickets.find(t => t.id === viewingId) || null;
+
+  return (
+    <div className="p-8 space-y-6 animate-fade-up">
+      <Topbar
+        title="แจ้งซ่อม IT"
+        subtitle={`ทั้งหมด ${visible.length} รายการ`}
+        action={<Button icon="plus" onClick={() => setOpenCreate(true)}>แจ้งปัญหาใหม่</Button>}
+      />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'ทั้งหมดในขอบเขต', value: stats.total,      color: 'flow',   icon: 'wrench', suffix: 'รายการ' },
+          { label: 'กำลังเปิดอยู่',    value: stats.open,       color: 'gold',   icon: 'clock',  suffix: 'รายการ' },
+          { label: 'เกินกำหนด SLA',   value: stats.overdue,    color: 'red',    icon: 'bell',   suffix: 'รายการ' },
+          { label: 'ปิดงานวันนี้',     value: stats.closedToday,color: 'green',  icon: 'check',  suffix: 'รายการ' },
+        ].map(s => (
+          <Card key={s.label} className="p-5 lift">
+            <div className="flex items-center gap-3">
+              <div className={cls('w-11 h-11 rounded-xl flex items-center justify-center shrink-0',
+                s.color === 'flow'  && 'bg-flow-100 text-flow-700',
+                s.color === 'green' && 'bg-emerald-100 text-emerald-700',
+                s.color === 'red'   && 'bg-red-100 text-red-600',
+                s.color === 'gold'  && 'bg-gold-100 text-gold-700',
+              )}>
+                <Icon name={s.icon} className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs text-ink-500">{s.label}</div>
+                <div className="font-display text-xl font-bold text-ink-900 truncate">{s.value}</div>
+                <div className="text-[10px] text-ink-400">{s.suffix}</div>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="p-4">
+        <div className="grid md:grid-cols-5 gap-3">
+          <div className="md:col-span-1">
+            <Input icon="search" placeholder="ค้นหา รหัส/หัวข้อ/ผู้แจ้ง..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <option value="all">ทุกสถานะ</option>
+            {TICKET_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </Select>
+          <Select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
+            <option value="all">ทุกความสำคัญ</option>
+            {TICKET_PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </Select>
+          <Select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+            <option value="all">ทุกหมวดหมู่</option>
+            {TICKET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          {isITStaff && (
+            <label className="flex items-center gap-2 text-sm text-ink-700 px-1">
+              <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} className="rounded" />
+              เฉพาะที่มอบหมายให้ฉัน
+            </label>
+          )}
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden">
+        {visible.length === 0 ? (
+          <Empty icon="wrench" title="ไม่มี ticket" desc="คลิก 'แจ้งปัญหาใหม่' เพื่อเริ่มต้น" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-ink-50 text-ink-600 text-xs uppercase">
+                  <th className="text-left px-4 py-3">รหัส</th>
+                  <th className="text-left px-4 py-3">หัวข้อ</th>
+                  <th className="text-left px-4 py-3">ผู้แจ้ง</th>
+                  <th className="text-left px-4 py-3">หมวดหมู่</th>
+                  <th className="text-center px-4 py-3">ความสำคัญ</th>
+                  <th className="text-center px-4 py-3">สถานะ</th>
+                  <th className="text-center px-4 py-3">SLA</th>
+                  <th className="text-left px-4 py-3">ผู้รับผิดชอบ</th>
+                  <th className="text-left px-4 py-3">แจ้งเมื่อ</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map(t => {
+                  const priority = TICKET_PRIORITY_MAP[t.priority] || TICKET_PRIORITY_MAP.medium;
+                  const statusInfo = TICKET_STATUS_MAP[t.status] || TICKET_STATUSES[0];
+                  const sla = getTicketSla(t);
+                  return (
+                    <tr key={t.id} className="border-t border-ink-100 hover:bg-ink-50/60 cursor-pointer" onClick={() => setViewingId(t.id)}>
+                      <td className="px-4 py-3 font-mono text-xs text-ink-500">{t.code}</td>
+                      <td className="px-4 py-3 text-ink-800 max-w-[220px] truncate">{t.title}</td>
+                      <td className="px-4 py-3 text-ink-700">{empName(t.requesterId)}</td>
+                      <td className="px-4 py-3 text-ink-600 text-xs">{t.category}</td>
+                      <td className="px-4 py-3 text-center"><Badge color={priority.color}>{priority.label}</Badge></td>
+                      <td className="px-4 py-3 text-center"><Badge color={statusInfo.color}>{statusInfo.label}</Badge></td>
+                      <td className="px-4 py-3 text-center"><Badge color={sla.color}>{sla.label}</Badge></td>
+                      <td className="px-4 py-3 text-ink-600 text-xs">{t.assigneeId ? empName(t.assigneeId) : '—'}</td>
+                      <td className="px-4 py-3 text-ink-500 text-xs">{fmtTicketDate(t.createdAt)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={(e) => { e.stopPropagation(); setViewingId(t.id); }} className="text-ink-400 hover:text-flow-600">
+                            <Icon name="eye" className="w-4 h-4" />
+                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`ยืนยันลบ ticket "${t.code} - ${t.title}" อย่างถาวร?`)) deleteTicket(t.id);
+                              }}
+                              className="text-ink-400 hover:text-red-500"
+                            >
+                              <Icon name="trash" className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <CreateTicketModal
+        open={openCreate}
+        onClose={() => setOpenCreate(false)}
+        employees={employees}
+        branches={branches}
+        assets={assets}
+        user={user}
+        onCreate={createTicket}
+      />
+
+      <TicketDetailModal
+        ticket={viewing}
+        onClose={() => setViewingId(null)}
+        employees={employees}
+        branches={branches}
+        assets={assets}
+        user={user}
+        canManage={canManage}
+        isAdmin={isAdmin}
+        itOptions={itOptions}
+        onUpdate={updateTicket}
+        onDelete={deleteTicket}
+      />
+    </div>
+  );
+};
+
 const ExpensesPage = () => {
   const { employees, branches, user, settings, setSettings, addToast } = useApp();
   const [openForm, setOpenForm] = useState(false);
@@ -15481,6 +16162,7 @@ const App = () => {
           {page === 'calendar'   && <TeamCalendarPage />}
           {page === 'myinfo'     && <MyInfoPage />}
           {page === 'assets'     && <AssetsPage />}
+          {page === 'tickets'    && <TicketsPage />}
           {page === 'payroll'    && <PayrollPage />}
           {page === 'kpi'        && <KpiPage />}
           {page === 'expenses'   && <ExpensesPage />}
