@@ -10,6 +10,17 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 
+<!-- ป้องกันหน้าจอกะพริบ: อ่านธีมที่บันทึกไว้แล้วตั้งค่าก่อน Tailwind/React ทำงาน -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('ffc_theme');
+      var isDark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (isDark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+
 <!-- Tailwind via CDN -->
 <script src="https://cdn.tailwindcss.com"></script>
 
@@ -36,6 +47,7 @@
 <script>
   // Tailwind custom config
   tailwind.config = {
+    darkMode: 'class',
     theme: {
       extend: {
         fontFamily: {
@@ -363,6 +375,65 @@
 
   /* Ring progress */
   .ring-progress { transform: rotate(-90deg); transition: stroke-dashoffset 1s cubic-bezier(0.16,1,0.3,1); }
+
+  /* =========================================================
+     DARK MODE — ทับสี utility ที่ใช้บ่อยที่สุดทั้งแอปด้วย html.dark
+     (ครอบคลุมโครงหลัก: sidebar, topbar, card, modal, ตาราง, ฟอร์ม, badge)
+     ========================================================= */
+  html.dark body { background-color: #0B1220; }
+  html.dark ::selection { background: #0891B2; color: #fff; }
+
+  html.dark .bg-white   { background-color: #131B2E !important; }
+  html.dark .bg-ink-50   { background-color: #0B1220 !important; }
+  html.dark .bg-ink-100  { background-color: #1B2436 !important; }
+  html.dark .bg-ink-200  { background-color: #232E44 !important; }
+  html.dark .bg-ink-900  { background-color: #060A14 !important; }
+
+  html.dark .border-ink-50  { border-color: #1B2436 !important; }
+  html.dark .border-ink-100 { border-color: #232E44 !important; }
+  html.dark .border-ink-200 { border-color: #2C3854 !important; }
+  html.dark .border-ink-300 { border-color: #384366 !important; }
+
+  html.dark .text-ink-900 { color: #F1F5F9 !important; }
+  html.dark .text-ink-800 { color: #E2E8F0 !important; }
+  html.dark .text-ink-700 { color: #CBD5E1 !important; }
+  html.dark .text-ink-600 { color: #A8B3C7 !important; }
+  html.dark .text-ink-500 { color: #8593AC !important; }
+  html.dark .text-ink-400 { color: #64748B !important; }
+  html.dark .text-ink-300 { color: #475569 !important; }
+
+  html.dark .hover\:bg-ink-50:hover  { background-color: #1B2436 !important; }
+  html.dark .hover\:bg-ink-100:hover { background-color: #232E44 !important; }
+  html.dark .hover\:bg-ink-200:hover { background-color: #2C3854 !important; }
+  html.dark .hover\:bg-flow-50:hover { background-color: rgba(6,182,212,.18) !important; }
+  html.dark .hover\:text-ink-900:hover { color: #F1F5F9 !important; }
+
+  /* พื้นหลังสีพาสเทล (badge / stat card / highlight) — หรี่ลงให้เข้ากับพื้นมืด */
+  html.dark .bg-flow-50    { background-color: rgba(6,182,212,.12)  !important; }
+  html.dark .bg-flow-100   { background-color: rgba(6,182,212,.18)  !important; }
+  html.dark .bg-emerald-50 { background-color: rgba(16,185,129,.12) !important; }
+  html.dark .bg-emerald-100{ background-color: rgba(16,185,129,.18) !important; }
+  html.dark .bg-red-50     { background-color: rgba(239,68,68,.12)  !important; }
+  html.dark .bg-red-100    { background-color: rgba(239,68,68,.18)  !important; }
+  html.dark .bg-gold-50    { background-color: rgba(245,158,11,.12) !important; }
+  html.dark .bg-gold-100   { background-color: rgba(245,158,11,.18) !important; }
+  html.dark .bg-cyan-100   { background-color: rgba(34,211,238,.18) !important; }
+  html.dark .bg-orange-100 { background-color: rgba(249,115,22,.18) !important; }
+  html.dark .bg-purple-100 { background-color: rgba(168,85,247,.18) !important; }
+  html.dark .bg-pink-100   { background-color: rgba(236,72,153,.18) !important; }
+  html.dark .bg-yellow-50  { background-color: rgba(245,158,11,.12) !important; }
+  html.dark .bg-blue-50    { background-color: rgba(59,130,246,.12) !important; }
+
+  /* ข้อความสีเน้น ให้สว่างขึ้นเพื่ออ่านง่ายบนพื้นมืด */
+  html.dark .text-flow-600, html.dark .text-flow-700, html.dark .text-flow-800 { color: #67E8F9 !important; }
+  html.dark .text-emerald-600, html.dark .text-emerald-700 { color: #6EE7B7 !important; }
+  html.dark .text-red-600, html.dark .text-red-700 { color: #FCA5A5 !important; }
+  html.dark .text-gold-600, html.dark .text-gold-700 { color: #FCD34D !important; }
+
+  html.dark .shadow-soft, html.dark .shadow-card,
+  html.dark [class*="shadow-"] { box-shadow: 0 4px 24px -8px rgba(0,0,0,.55) !important; }
+
+  html.dark input, html.dark select, html.dark textarea { color-scheme: dark; }
 </style>
 </head>
 
@@ -745,6 +816,7 @@ const api = {
         holidays:      settings.holidays || company.holidays || [],
         payrollCycles: settings.payrollCycles || company.payrollCycles || [],
         tickets:       settings.tickets || company.tickets || [],
+        subscriptions: settings.subscriptions || company.subscriptions || [],
       };
       return {
         employees:   (employees || []).map(r => fromDb('employees', r)),
@@ -1447,6 +1519,7 @@ const attStatusInfo = (status, leaveType, leaveTypes, opts) => {
 
 // ===== เงินเดือน: helper ส่วนกลาง =====
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const fmtMoney = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // หากะของพนักงานในวันที่กำหนด (YYYY-MM-DD) จาก settings.shifts
@@ -2019,7 +2092,7 @@ const LoginPage = ({ onLogin, addToast }) => {
    APP SHELL (sidebar + topbar + content)
    ============================================================= */
 const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile }) => {
-  const { employees } = useApp();
+  const { employees, darkMode, toggleDarkMode } = useApp();
   const [showChangePw, setShowChangePw] = useState(false);
   // เช็คสิทธิ์ของพนักงานที่ login
   const myEmp = employees.find(e => e.id === user.empId);
@@ -2027,6 +2100,7 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
   const isRegionalManager = scope === 'regional';   // ผู้จัดการภาค
   const canSeePayroll = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
   const isBasicEmp = user.role === 'employee' && scope === 'none';
+  const isITStaff = !!(myEmp && myEmp.department === 'ฝ่าย IT');
   const menu = [
     { id: 'dashboard',  label: isBasicEmp ? 'หน้าหลัก' : 'แดชบอร์ด', icon: isBasicEmp ? 'dashboard' : 'dashboard' },
     { id: 'checkin',    label: 'เช็คอิน-เอาท์',     icon: 'map' },
@@ -2039,6 +2113,7 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
     { id: 'calendar',   label: 'ปฏิทินทีม',         icon: 'calendar' },
     { id: 'assets',     label: 'ทรัพย์สิน',         icon: 'box' },
     { id: 'tickets',    label: 'แจ้งซ่อม IT', icon: 'wrench' },
+    { id: 'subscriptions', label: 'ซอฟต์แวร์ & AI', icon: 'sparkle' },
     { id: 'payroll',    label: 'เงินเดือน',         icon: 'tag' },
     { id: 'kpi',        label: 'ประเมิน KPI',       icon: 'target' },
     { id: 'expenses',   label: 'เบิกค่าใช้จ่าย',     icon: 'receipt' },
@@ -2053,14 +2128,20 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
   const visible = menu.filter((m) => {
     // เงินเดือน: เฉพาะ admin/hr/ผู้มีสิทธิ์ canPayroll (Manager/บัญชี)
     if (m.id === 'payroll' && !canSeePayroll) return false;
+    // ซอฟต์แวร์ & AI: เฉพาะ admin/hr/พนักงานฝ่าย IT
+    if (m.id === 'subscriptions' && !(user.role === 'admin' || user.role === 'hr' || isITStaff)) return false;
     if (user.role === 'employee') {
       // ผู้จัดการภาค (regional) เห็นเพิ่ม: การเข้า-ออกงาน + การประเมิน KPI
       if (isRegionalManager) {
-        return ['dashboard','checkin','employees','attendance','shifts','leaves','ot','warnings','calendar','kpi','expenses','policies','myinfo','tickets'].includes(m.id);
+        const allowed = ['dashboard','checkin','employees','attendance','shifts','leaves','ot','warnings','calendar','kpi','expenses','policies','myinfo','tickets'];
+        if (isITStaff) allowed.push('subscriptions');
+        return allowed.includes(m.id);
       }
-      return ['dashboard','checkin','leaves','ot','calendar','expenses','policies','myinfo','tickets'].includes(m.id);
+      const allowed = ['dashboard','checkin','leaves','ot','calendar','expenses','policies','myinfo','tickets'];
+      if (isITStaff) allowed.push('subscriptions');
+      return allowed.includes(m.id);
     }
-    if (user.role === 'manager')  return !['settings','branches','myinfo'].includes(m.id);
+    if (user.role === 'manager')  return !['settings','branches','myinfo'].includes(m.id) && (m.id !== 'subscriptions' || isITStaff);
     // admin/hr เห็นทุกอย่างยกเว้น myinfo (มีหน้าพนักงานเต็มแล้ว)
     if (m.id === 'myinfo') return false;
     return true;
@@ -2110,6 +2191,9 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
           </div>
           <button onClick={() => setShowChangePw(true)} className="text-ink-400 hover:text-brand-600 p-1.5 rounded-lg hover:bg-brand-50 transition-colors" title="เปลี่ยนรหัสผ่าน">
             <Icon name="settings" className="w-4 h-4" />
+          </button>
+          <button onClick={toggleDarkMode} className="text-ink-400 hover:text-flow-600 p-1.5 rounded-lg hover:bg-flow-50 transition-colors" title={darkMode ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}>
+            <Icon name={darkMode ? 'sun' : 'moon'} className="w-4 h-4" />
           </button>
           <button onClick={onLogout} className="text-ink-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="ออกจากระบบ">
             <Icon name="logout" className="w-4 h-4" />
@@ -2171,7 +2255,7 @@ const ChangePasswordModal = ({ username, onClose }) => {
 };
 
 const Topbar = ({ title, subtitle, action }) => {
-  const { leaves, assets, employees, user, setPage, refreshData, syncing, addToast, settings, attendance } = useApp();
+  const { leaves, assets, employees, user, setPage, refreshData, syncing, addToast, settings, attendance, darkMode, toggleDarkMode } = useApp();
   const [open, setOpen] = useState(false);
   const [notifTick, setNotifTick] = useState(0);   // บังคับคำนวณแจ้งเตือนใหม่เมื่ออ่านประกาศ
 
@@ -2355,6 +2439,30 @@ const Topbar = ({ title, subtitle, action }) => {
       }
     }
 
+    // แจ้งเตือนซอฟต์แวร์/AI ใกล้หมดอายุ หรือหมดอายุแล้ว (เฉพาะ admin/hr/พนักงานฝ่าย IT)
+    {
+      const isITStaff2 = myEmp && myEmp.department === 'ฝ่าย IT';
+      if (user.role === 'admin' || user.role === 'hr' || isITStaff2) {
+        const subs = ((settings && settings.subscriptions) || []).filter(s => s.status !== 'cancelled');
+        const expiringSubs = subs.filter(s => getSubStatus(s).key === 'expiring');
+        const expiredSubs = subs.filter(s => getSubStatus(s).key === 'expired');
+        if (expiringSubs.length > 0) {
+          list.push({
+            id: 'sub-expiring', icon: 'sparkle', color: 'gold',
+            title: `ซอฟต์แวร์/AI ใกล้หมดอายุ ${expiringSubs.length} รายการ`,
+            desc: 'คลิกเพื่อไปหน้าซอฟต์แวร์ & AI', page: 'subscriptions',
+          });
+        }
+        if (expiredSubs.length > 0) {
+          list.push({
+            id: 'sub-expired', icon: 'bell', color: 'red',
+            title: `ซอฟต์แวร์/AI หมดอายุแล้ว ${expiredSubs.length} รายการ`,
+            desc: 'คลิกเพื่อไปหน้าซอฟต์แวร์ & AI', page: 'subscriptions',
+          });
+        }
+      }
+    }
+
     return list;
   }, [leaves, assets, employees, user, settings, attendance, notifTick]);
 
@@ -2367,6 +2475,12 @@ const Topbar = ({ title, subtitle, action }) => {
         </div>
         <div className="flex items-center gap-3">
           {action}
+          <button
+            onClick={toggleDarkMode}
+            title={darkMode ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
+            className="w-10 h-10 rounded-xl border border-ink-200 hover:bg-ink-50 flex items-center justify-center text-ink-600 transition-colors">
+            <Icon name={darkMode ? 'sun' : 'moon'} className="w-5 h-5" />
+          </button>
           <button
             onClick={() => api.enabled() ? refreshData() : addToast('info', 'ยังไม่ได้เชื่อมต่อ Supabase — ไปที่ ตั้งค่า › ฐานข้อมูล เพื่อกรอก URL + Key')}
             disabled={syncing}
@@ -11449,7 +11563,7 @@ const fmtTicketDate = (iso) => {
   if (!iso) return '-';
   try {
     const d = new Date(iso);
-    return `${d.getDate()} ${THAI_MONTHS[d.getMonth()].slice(0, 3)} ${(d.getFullYear() + 543) % 100} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `${d.getDate()} ${THAI_MONTHS_SHORT[d.getMonth()]} ${(d.getFullYear() + 543) % 100} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   } catch { return '-'; }
 };
 
@@ -11758,11 +11872,13 @@ const TicketsPage = () => {
   const [mineOnly, setMineOnly] = useState(false);
   const [openCreate, setOpenCreate] = useState(false);
   const [viewingId, setViewingId] = useState(null);
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'kanban'
 
   const myEmp = employees.find(e => e.id === user.empId) || null;
   const isITStaff = !!(myEmp && myEmp.department === 'ฝ่าย IT');
   const canManage = user.role === 'admin' || user.role === 'hr' || isITStaff;
   const isAdmin = user.role === 'admin';
+  const canKanban = isAdmin || isITStaff; // มุมมอง Kanban สำหรับ Admin และทีม IT เท่านั้น
   const itOptions = useMemo(
     () => (employees || []).filter(e => e.department === 'ฝ่าย IT' && e.status !== 'inactive'),
     [employees]
@@ -11849,7 +11965,29 @@ const TicketsPage = () => {
       <Topbar
         title="แจ้งซ่อม IT"
         subtitle={`ทั้งหมด ${visible.length} รายการ`}
-        action={<Button icon="plus" onClick={() => setOpenCreate(true)}>แจ้งปัญหาใหม่</Button>}
+        action={
+          <div className="flex items-center gap-2">
+            {canKanban && (
+              <div className="flex items-center bg-ink-100 rounded-xl p-1 gap-1">
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={cls('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                    viewMode === 'list' ? 'bg-white text-ink-800 shadow-sm' : 'text-ink-500 hover:text-ink-700')}
+                >
+                  <Icon name="file" className="w-3.5 h-3.5" /> รายการ
+                </button>
+                <button
+                  onClick={() => setViewMode('kanban')}
+                  className={cls('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                    viewMode === 'kanban' ? 'bg-white text-ink-800 shadow-sm' : 'text-ink-500 hover:text-ink-700')}
+                >
+                  <Icon name="target" className="w-3.5 h-3.5" /> Kanban
+                </button>
+              </div>
+            )}
+            <Button icon="plus" onClick={() => setOpenCreate(true)}>แจ้งปัญหาใหม่</Button>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -11905,6 +12043,53 @@ const TicketsPage = () => {
         </div>
       </Card>
 
+      {viewMode === 'kanban' && canKanban ? (
+        <div className="overflow-x-auto pb-2 -mx-8 px-8">
+          <div className="flex gap-4 min-w-max">
+            {TICKET_STATUSES.filter(s => s.id !== 'cancelled').map(s => {
+              const colTickets = visible.filter(t => t.status === s.id);
+              const dotClass = {
+                gray: 'bg-ink-400', blue: 'bg-flow-500', cyan: 'bg-cyan-500',
+                purple: 'bg-purple-500', green: 'bg-emerald-500', red: 'bg-red-500', yellow: 'bg-gold-500',
+              }[s.color] || 'bg-ink-400';
+              return (
+                <div key={s.id} className="w-72 shrink-0 flex flex-col max-h-[70vh]">
+                  <div className="flex items-center justify-between mb-3 px-1 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <span className={cls('w-2.5 h-2.5 rounded-full', dotClass)}></span>
+                      <span className="font-medium text-sm text-ink-800">{s.label}</span>
+                    </div>
+                    <span className="text-xs font-medium text-ink-500 bg-ink-100 rounded-full px-2 py-0.5">{colTickets.length}</span>
+                  </div>
+                  <div className="space-y-2 overflow-y-auto pr-1 flex-1">
+                    {colTickets.length === 0 && (
+                      <div className="text-xs text-ink-400 text-center py-6 border border-dashed border-ink-200 rounded-xl">ไม่มีรายการ</div>
+                    )}
+                    {colTickets.map(t => {
+                      const priority = TICKET_PRIORITY_MAP[t.priority] || TICKET_PRIORITY_MAP.medium;
+                      const sla = getTicketSla(t);
+                      return (
+                        <Card key={t.id} className="p-3 lift cursor-pointer" onClick={() => setViewingId(t.id)}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-mono text-[11px] text-ink-400">{t.code}</span>
+                            <Badge color={priority.color} className="text-[10px] px-1.5 py-0">{priority.label}</Badge>
+                          </div>
+                          <div className="text-sm text-ink-800 font-medium mb-2 line-clamp-2">{t.title}</div>
+                          <div className="flex items-center justify-between text-[11px] text-ink-500 mb-1.5">
+                            <span className="truncate">{empName(t.requesterId)}</span>
+                            <span className="truncate">{t.assigneeId ? empName(t.assigneeId) : '— ยังไม่มอบหมาย'}</span>
+                          </div>
+                          <Badge color={sla.color} className="text-[10px] px-1.5 py-0 w-full justify-center">{sla.label}</Badge>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
       <Card className="overflow-hidden">
         {visible.length === 0 ? (
           <Empty icon="wrench" title="ไม่มี ticket" desc="คลิก 'แจ้งปัญหาใหม่' เพื่อเริ่มต้น" />
@@ -11967,6 +12152,7 @@ const TicketsPage = () => {
           </div>
         )}
       </Card>
+      )}
 
       <CreateTicketModal
         open={openCreate}
@@ -11990,6 +12176,399 @@ const TicketsPage = () => {
         itOptions={itOptions}
         onUpdate={updateTicket}
         onDelete={deleteTicket}
+      />
+    </div>
+  );
+};
+
+/* =============================================================
+   ซอฟต์แวร์ / AI SUBSCRIPTIONS — บันทึกการซื้อโปรแกรม/บริการ AI
+   เก็บผู้ถือครอง วันที่ซื้อ วันหมดอายุ พร้อมแจ้งเตือนให้ต่ออายุ
+   ============================================================= */
+const SUBSCRIPTION_CATEGORIES = [
+  'AI / Generative AI',
+  'ซอฟต์แวร์ออกแบบ / กราฟิก',
+  'Office / Productivity',
+  'ระบบคลาวด์ / Hosting / Domain',
+  'ความปลอดภัย / Antivirus',
+  'การตลาด / โซเชียลมีเดีย',
+  'บัญชี / ERP',
+  'อื่นๆ',
+];
+
+const SUBSCRIPTION_BILLING_CYCLES = [
+  { id: 'monthly', label: 'รายเดือน' },
+  { id: 'yearly',  label: 'รายปี' },
+  { id: 'once',    label: 'ครั้งเดียว / ตลอดชีพ' },
+];
+
+const SUBSCRIPTION_CURRENCIES = ['THB', 'USD'];
+
+// จำนวนวันนับจากวันนี้ถึงวันที่กำหนด (ติดลบ = เลยมาแล้ว)
+const daysUntil = (dateStr) => {
+  if (!dateStr) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr); target.setHours(0, 0, 0, 0);
+  return Math.round((target - today) / 86400000);
+};
+
+// สถานะการต่ออายุของ subscription ณ ปัจจุบัน
+const getSubStatus = (sub) => {
+  if (!sub) return { key: 'na', label: '-', color: 'gray' };
+  if (sub.status === 'cancelled') return { key: 'cancelled', label: 'ยกเลิกแล้ว', color: 'gray' };
+  const d = daysUntil(sub.expiryDate);
+  if (d === null) return { key: 'na', label: '-', color: 'gray' };
+  const reminderDays = Number(sub.reminderDays) || 14;
+  if (d < 0) return { key: 'expired', label: `หมดอายุแล้ว ${Math.abs(d)} วัน`, color: 'red' };
+  if (d === 0) return { key: 'expiring', label: 'หมดอายุวันนี้', color: 'red' };
+  if (d <= reminderDays) return { key: 'expiring', label: `ใกล้หมดอายุ (เหลือ ${d} วัน)`, color: 'gold' };
+  return { key: 'active', label: `ใช้งานอยู่ (เหลือ ${d} วัน)`, color: 'green' };
+};
+
+const fmtSubDate = (iso) => {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    return `${d.getDate()} ${THAI_MONTHS_SHORT[d.getMonth()]} ${(d.getFullYear() + 543) % 100}`;
+  } catch { return '-'; }
+};
+
+/* ---------- ฟอร์มเพิ่ม/แก้ไข subscription ---------- */
+const SubscriptionFormModal = ({ open, onClose, editing, employees, branches, onSave }) => {
+  const blank = {
+    name: '', vendor: '', category: SUBSCRIPTION_CATEGORIES[0], holderId: '', branchId: '',
+    accountEmail: '', plan: '', seats: 1, billingCycle: 'yearly', cost: '', currency: 'THB',
+    purchaseDate: new Date().toISOString().split('T')[0], expiryDate: '',
+    autoRenew: false, reminderDays: 14, status: 'active', notes: '',
+  };
+  const [form, setForm] = useState(blank);
+
+  const activeEmployees = useMemo(
+    () => (employees || []).filter(e => e.status !== 'inactive')
+      .slice().sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true })),
+    [employees]
+  );
+
+  useEffect(() => {
+    if (open) setForm(editing ? { ...blank, ...editing } : blank);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing]);
+
+  if (!open) return null;
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) return alert('กรุณาระบุชื่อโปรแกรม/บริการ');
+    if (!form.holderId) return alert('กรุณาเลือกผู้ถือครอง');
+    if (!form.purchaseDate) return alert('กรุณาระบุวันที่ซื้อ');
+    if (!form.expiryDate) return alert('กรุณาระบุวันที่หมดอายุ');
+    onSave({ ...form, name: form.name.trim(), cost: Number(form.cost) || 0, seats: Number(form.seats) || 1, reminderDays: Number(form.reminderDays) || 14 });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={editing ? 'แก้ไขข้อมูลการสมัคร' : 'บันทึกการซื้อโปรแกรม / AI ใหม่'} size="lg">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-3">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ชื่อโปรแกรม/บริการ</label>
+            <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="เช่น ChatGPT Plus, Adobe Creative Cloud, Canva Pro..." required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้ให้บริการ / Vendor</label>
+            <Input value={form.vendor} onChange={(e) => set('vendor', e.target.value)} placeholder="เช่น OpenAI, Adobe, Google" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">หมวดหมู่</label>
+            <Select value={form.category} onChange={(e) => set('category', e.target.value)}>
+              {SUBSCRIPTION_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ผู้ถือครอง / ผู้รับผิดชอบบัญชี</label>
+            <Select value={form.holderId} onChange={(e) => set('holderId', e.target.value)}>
+              <option value="">— เลือกพนักงาน —</option>
+              {activeEmployees.map(e => <option key={e.id} value={e.id}>{e.id} - {e.firstName} {e.lastName} ({e.department || '-'})</option>)}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">สาขา</label>
+            <Select value={form.branchId} onChange={(e) => set('branchId', e.target.value)}>
+              <option value="">— ไม่ระบุ —</option>
+              {(branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">บัญชีอีเมลที่ใช้สมัคร</label>
+            <Input type="email" value={form.accountEmail} onChange={(e) => set('accountEmail', e.target.value)} placeholder="account@company.com" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">แพลน / License</label>
+            <Input value={form.plan} onChange={(e) => set('plan', e.target.value)} placeholder="เช่น Plus, Pro, Team, Enterprise" />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">จำนวนสิทธิ์ใช้งาน (seats)</label>
+            <input type="number" min={1} value={form.seats} onChange={(e) => set('seats', e.target.value)}
+              className="w-full border border-ink-200 rounded-xl py-2.5 px-3 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">รอบการเรียกเก็บเงิน</label>
+            <Select value={form.billingCycle} onChange={(e) => set('billingCycle', e.target.value)}>
+              {SUBSCRIPTION_BILLING_CYCLES.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ราคา / รอบบิล</label>
+            <div className="flex gap-2">
+              <input type="number" min={0} step="0.01" value={form.cost} onChange={(e) => set('cost', e.target.value)}
+                className="flex-1 border border-ink-200 rounded-xl py-2.5 px-3 text-sm" placeholder="0.00" />
+              <Select value={form.currency} onChange={(e) => set('currency', e.target.value)} className="w-24">
+                {SUBSCRIPTION_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </Select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">แจ้งเตือนล่วงหน้า (วัน) ก่อนหมดอายุ</label>
+            <input type="number" min={1} value={form.reminderDays} onChange={(e) => set('reminderDays', e.target.value)}
+              className="w-full border border-ink-200 rounded-xl py-2.5 px-3 text-sm" />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่ซื้อ</label>
+            <Input type="date" value={form.purchaseDate} onChange={(e) => set('purchaseDate', e.target.value)} required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">วันที่หมดอายุ</label>
+            <Input type="date" value={form.expiryDate} onChange={(e) => set('expiryDate', e.target.value)} required />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-ink-700 md:col-span-2">
+            <input type="checkbox" checked={!!form.autoRenew} onChange={(e) => set('autoRenew', e.target.checked)} className="rounded" />
+            ต่ออายุอัตโนมัติ (auto-renew)
+          </label>
+
+          {editing && (
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">สถานะ</label>
+              <Select value={form.status} onChange={(e) => set('status', e.target.value)}>
+                <option value="active">ใช้งานอยู่</option>
+                <option value="cancelled">ยกเลิกแล้ว (เลิกใช้/ไม่ต่ออายุ)</option>
+              </Select>
+            </div>
+          )}
+
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">หมายเหตุ</label>
+            <Textarea rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="รายละเอียดเพิ่มเติม เช่น เลขที่ใบเสร็จ, เงื่อนไขสัญญา..." />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
+          <Button type="button" variant="outline" onClick={onClose}>ยกเลิก</Button>
+          <Button type="submit" icon={editing ? 'check' : 'plus'}>{editing ? 'บันทึกการแก้ไข' : 'บันทึกรายการ'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+/* ---------- หน้ารายการซอฟต์แวร์ / AI ---------- */
+const SubscriptionsPage = () => {
+  const { employees, branches, user, settings, setSettings, addToast } = useApp();
+  const subscriptions = (settings && settings.subscriptions) || [];
+
+  const [search, setSearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [openForm, setOpenForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  const myEmp = employees.find(e => e.id === user.empId) || null;
+  const isITStaff = !!(myEmp && myEmp.department === 'ฝ่าย IT');
+  const canManage = user.role === 'admin' || user.role === 'hr' || isITStaff;
+  const isAdmin = user.role === 'admin';
+
+  const empName = (id) => {
+    const e = employees.find(x => x.id === id);
+    return e ? `${e.firstName} ${e.lastName}` : '-';
+  };
+
+  const visible = useMemo(() => subscriptions.filter(s => {
+    if (filterCategory !== 'all' && s.category !== filterCategory) return false;
+    if (filterStatus !== 'all' && getSubStatus(s).key !== filterStatus) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (![s.name, s.vendor, s.plan, s.accountEmail, empName(s.holderId)].some(v => String(v || '').toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.expiryDate || '').localeCompare(b.expiryDate || '')), [subscriptions, filterCategory, filterStatus, search, employees]);
+
+  const stats = useMemo(() => {
+    const notCancelled = subscriptions.filter(s => s.status !== 'cancelled');
+    const active = notCancelled.filter(s => getSubStatus(s).key === 'active');
+    const expiring = notCancelled.filter(s => getSubStatus(s).key === 'expiring');
+    const expired = notCancelled.filter(s => getSubStatus(s).key === 'expired');
+    return { total: subscriptions.length, active: active.length, expiring: expiring.length, expired: expired.length };
+  }, [subscriptions]);
+
+  if (!canManage) {
+    return (
+      <div className="p-8">
+        <Empty icon="lock" title="ไม่มีสิทธิ์เข้าถึงหน้านี้" desc="หน้านี้สำหรับ Admin, HR และทีม IT เท่านั้น" />
+      </div>
+    );
+  }
+
+  const saveSubs = async (list) => {
+    setSettings(s => ({ ...s, subscriptions: list }));
+    if (api.enabled()) {
+      try { await api.post('saveSettingsKey', { key: 'subscriptions', data: list }); }
+      catch (err) { addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message); }
+    }
+  };
+
+  const handleSave = (data) => {
+    if (editing) {
+      saveSubs(subscriptions.map(s => s.id === editing.id ? { ...editing, ...data } : s));
+      addToast('success', 'แก้ไขข้อมูลเรียบร้อย');
+    } else {
+      const item = { ...data, id: `SUB${Date.now()}`, createdAt: new Date().toISOString() };
+      saveSubs([...subscriptions, item]);
+      addToast('success', 'บันทึกรายการเรียบร้อย');
+    }
+    setOpenForm(false); setEditing(null);
+  };
+
+  const handleDelete = (sub) => {
+    if (!confirm(`ยืนยันลบ "${sub.name}" อย่างถาวร?`)) return;
+    saveSubs(subscriptions.filter(s => s.id !== sub.id));
+    addToast('success', 'ลบรายการเรียบร้อยแล้ว');
+  };
+
+
+  return (
+    <div className="p-8 space-y-6 animate-fade-up">
+      <Topbar
+        title="ซอฟต์แวร์ & AI"
+        subtitle={`ทั้งหมด ${visible.length} รายการ — บันทึกการซื้อโปรแกรม/บริการ AI พร้อมแจ้งเตือนต่ออายุ`}
+        action={<Button icon="plus" onClick={() => { setEditing(null); setOpenForm(true); }}>เพิ่มรายการ</Button>}
+      />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'ทั้งหมด',        value: stats.total,    color: 'flow',  icon: 'sparkle', suffix: 'รายการ' },
+          { label: 'ใช้งานอยู่',      value: stats.active,   color: 'green', icon: 'check',   suffix: 'รายการ' },
+          { label: 'ใกล้หมดอายุ',    value: stats.expiring, color: 'gold',  icon: 'bell',    suffix: 'รายการ' },
+          { label: 'หมดอายุแล้ว',    value: stats.expired,  color: 'red',   icon: 'clock',   suffix: 'รายการ' },
+        ].map(s => (
+          <Card key={s.label} className="p-5 lift">
+            <div className="flex items-center gap-3">
+              <div className={cls('w-11 h-11 rounded-xl flex items-center justify-center shrink-0',
+                s.color === 'flow'  && 'bg-flow-100 text-flow-700',
+                s.color === 'green' && 'bg-emerald-100 text-emerald-700',
+                s.color === 'red'   && 'bg-red-100 text-red-600',
+                s.color === 'gold'  && 'bg-gold-100 text-gold-700',
+              )}>
+                <Icon name={s.icon} className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs text-ink-500">{s.label}</div>
+                <div className="font-display text-xl font-bold text-ink-900 truncate">{s.value}</div>
+                <div className="text-[10px] text-ink-400">{s.suffix}</div>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="p-4">
+        <div className="grid md:grid-cols-3 gap-3">
+          <Input icon="search" placeholder="ค้นหา ชื่อ/ผู้ให้บริการ/ผู้ถือครอง/อีเมล..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+            <option value="all">ทุกหมวดหมู่</option>
+            {SUBSCRIPTION_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <option value="all">ทุกสถานะ</option>
+            <option value="active">ใช้งานอยู่</option>
+            <option value="expiring">ใกล้หมดอายุ</option>
+            <option value="expired">หมดอายุแล้ว</option>
+            <option value="cancelled">ยกเลิกแล้ว</option>
+          </Select>
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden">
+        {visible.length === 0 ? (
+          <Empty icon="sparkle" title="ยังไม่มีรายการ" desc="คลิก 'เพิ่มรายการ' เพื่อบันทึกการซื้อโปรแกรม/AI ครั้งแรก" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-ink-50 text-ink-600 text-xs uppercase">
+                  <th className="text-left px-4 py-3">โปรแกรม/บริการ</th>
+                  <th className="text-left px-4 py-3">หมวดหมู่</th>
+                  <th className="text-left px-4 py-3">ผู้ถือครอง</th>
+                  <th className="text-left px-4 py-3">แพลน</th>
+                  <th className="text-left px-4 py-3">วันที่ซื้อ</th>
+                  <th className="text-left px-4 py-3">วันหมดอายุ</th>
+                  <th className="text-center px-4 py-3">สถานะ</th>
+                  <th className="text-right px-4 py-3">ราคา/รอบ</th>
+                  <th className="w-20"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map(s => {
+                  const st = getSubStatus(s);
+                  const cycle = SUBSCRIPTION_BILLING_CYCLES.find(b => b.id === s.billingCycle);
+                  return (
+                    <tr key={s.id} className="border-t border-ink-100 hover:bg-ink-50/60">
+                      <td className="px-4 py-3">
+                        <div className="text-ink-800 font-medium">{s.name}</div>
+                        <div className="text-xs text-ink-400">{s.vendor || '-'}{s.autoRenew ? ' · ต่ออายุอัตโนมัติ' : ''}</div>
+                      </td>
+                      <td className="px-4 py-3 text-ink-600 text-xs">{s.category}</td>
+                      <td className="px-4 py-3 text-ink-700">{empName(s.holderId)}</td>
+                      <td className="px-4 py-3 text-ink-600 text-xs">{s.plan || '-'}{s.seats > 1 ? ` · ${s.seats} ที่นั่ง` : ''}</td>
+                      <td className="px-4 py-3 text-ink-500 text-xs">{fmtSubDate(s.purchaseDate)}</td>
+                      <td className="px-4 py-3 text-ink-500 text-xs">{fmtSubDate(s.expiryDate)}</td>
+                      <td className="px-4 py-3 text-center"><Badge color={st.color}>{st.label}</Badge></td>
+                      <td className="px-4 py-3 text-right text-ink-700 text-xs whitespace-nowrap">
+                        {s.cost ? `${fmtMoney(s.cost)} ${s.currency || 'THB'}` : '-'}
+                        <div className="text-[10px] text-ink-400">{cycle ? cycle.label : '-'}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => { setEditing(s); setOpenForm(true); }} className="text-ink-400 hover:text-flow-600">
+                            <Icon name="edit" className="w-4 h-4" />
+                          </button>
+                          {isAdmin && (
+                            <button onClick={() => handleDelete(s)} className="text-ink-400 hover:text-red-500">
+                              <Icon name="trash" className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <SubscriptionFormModal
+        open={openForm}
+        onClose={() => { setOpenForm(false); setEditing(null); }}
+        editing={editing}
+        employees={employees}
+        branches={branches}
+        onSave={handleSave}
       />
     </div>
   );
@@ -12875,11 +13454,20 @@ const PoliciesPage = () => {
 /* ───────────── ANNOUNCEMENT MODAL — เขียน/แก้ประกาศข่าวสาร ───────────── */
 const AnnouncementModal = ({ open, onClose, editing, onSave, author }) => {
   const [form, setForm] = useState({});
+  // rich text toolbar — ใช้ execCommand บน contentEditable
+  const editorRef = useRef(null);
 
   useEffect(() => {
     if (editing) setForm(JSON.parse(JSON.stringify(editing)));
     else setForm({ id: '', title: '', body: '', type: 'ทั่วไป', pinned: false, image: '', createdAt: new Date().toISOString(), author });
   }, [editing, open, author]);
+
+  // ตั้งค่าเนื้อหาเริ่มต้นใน editor (ครั้งแรกที่เปิด)
+  useEffect(() => {
+    if (open && editorRef.current) {
+      editorRef.current.innerHTML = (editing && editing.body) || '';
+    }
+  }, [open, editing]);
 
   if (!open) return null;
 
@@ -12909,16 +13497,8 @@ const AnnouncementModal = ({ open, onClose, editing, onSave, author }) => {
     } catch (err) { alert('อัปโหลดรูปไม่สำเร็จ: ' + err.message); }
   };
 
-  // rich text toolbar — ใช้ execCommand บน contentEditable
-  const editorRef = useRef(null);
   const exec = (cmd, val) => { document.execCommand(cmd, false, val); editorRef.current?.focus(); syncBody(); };
   const syncBody = () => { if (editorRef.current) setForm(f => ({ ...f, body: editorRef.current.innerHTML })); };
-  // ตั้งค่าเนื้อหาเริ่มต้นใน editor (ครั้งแรกที่เปิด)
-  useEffect(() => {
-    if (open && editorRef.current) {
-      editorRef.current.innerHTML = (editing && editing.body) || '';
-    }
-  }, [open, editing]);
 
   return (
     <Modal open={open} onClose={onClose} title={editing ? 'แก้ไขประกาศ' : 'เขียนประกาศใหม่'} size="lg">
@@ -15876,6 +16456,18 @@ const App = () => {
   const [page, setPage]       = useState('dashboard');
   const [pageTab, setPageTab] = useState(null);   // แท็บเริ่มต้นเมื่อเปลี่ยนหน้า (เช่น เปิด myinfo ที่แท็บสลิป)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ffc_theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch { return false; }
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    try { localStorage.setItem('ffc_theme', darkMode ? 'dark' : 'light'); } catch {}
+  }, [darkMode]);
+  const toggleDarkMode = () => setDarkMode(d => !d);
   const [employees, setEmployees]     = useState([]);
   const [attendance, setAttendance]   = useState([]);
   const [leaves, setLeaves]           = useState([]);
@@ -16118,6 +16710,7 @@ const App = () => {
       refreshData, syncing,
       loadHistory, historyLoaded,
       addToast,
+      darkMode, toggleDarkMode,
     }}>
       <div className="flex min-h-screen bg-ink-50">
         {api.enabled() && (
@@ -16163,6 +16756,7 @@ const App = () => {
           {page === 'myinfo'     && <MyInfoPage />}
           {page === 'assets'     && <AssetsPage />}
           {page === 'tickets'    && <TicketsPage />}
+          {page === 'subscriptions' && <SubscriptionsPage />}
           {page === 'payroll'    && <PayrollPage />}
           {page === 'kpi'        && <KpiPage />}
           {page === 'expenses'   && <ExpensesPage />}
