@@ -1261,7 +1261,7 @@ const printAssetBorrowForm = (data, settings) => {
             margin: 0,
             filename: '${fileName}.pdf',
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, letterRendering: true },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
             pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
           };
@@ -5932,6 +5932,30 @@ const countLateInMonth = (empId, monthStr, attendance) => {
 };
 
 // พิมพ์ใบเตือน
+// html2canvas (ที่ใช้แปลงหน้าเป็น PDF) มีบั๊กกับพารากราฟภาษาไทยที่ตัดขึ้นบรรทัดยาวเกิน ~2 บรรทัด
+// (คำนวณตำแหน่งบรรทัดคลาดเคลื่อนสะสม ทำให้ข้อความซ้อนทับกัน) — พารากราฟที่ตัดไม่เกิน 2 บรรทัด
+// จะปล่อยให้เบราว์เซอร์ตัดคำเองตามธรรมชาติ (ใช้เต็มความกว้างกระดาษ) เพื่อความสวยงาม
+// ส่วนพารากราฟที่ยาวเกินกว่าจะพอดี 2 บรรทัด (>~195 ตัวอักษร) จะแบ่งเป็นพารากราฟย่อยเพื่อความปลอดภัย
+const splitThaiChunks = (text, maxChars = 195) => {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const chunks = [];
+  let cur = '';
+  words.forEach(w => {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > maxChars && cur) {
+      chunks.push(cur);
+      cur = w;
+    } else {
+      cur = next;
+    }
+  });
+  if (cur) chunks.push(cur);
+  return chunks;
+};
+const splitThaiParas = (text, maxChars = 195) =>
+  splitThaiChunks(text, maxChars).map(c => `<p>${c}</p>`).join('');
+
 const printWarning = (emp, warning, settings, branches) => {
   const S = 'scr' + 'ipt';
   const branch = branches.find(b => b.id === emp.branchId);
@@ -5954,8 +5978,15 @@ const printWarning = (emp, warning, settings, branches) => {
     : `<div class="warn-reason">พบว่าท่านมาปฏิบัติงานสายจำนวน ${warning.lateCount} ครั้ง ในเดือน${monthLabel}</div>
        <div style="margin-top:6px;font-size:14px;color:#666">ซึ่งเกินเกณฑ์ที่บริษัทกำหนด (${warning.threshold} ครั้งต่อเดือน)</div>`;
   const bodyPara = isCustom
-    ? `<p>ตามที่บริษัทได้กำหนดระเบียบและข้อบังคับในการปฏิบัติงานสำหรับพนักงานนั้น บริษัทตรวจสอบพบว่าท่านได้กระทำการอันเป็นการฝ่าฝืนระเบียบตามรายละเอียดข้างต้น</p>`
-    : `<p>ตามที่บริษัทได้กำหนดระเบียบการปฏิบัติงานให้พนักงานมาปฏิบัติงานตรงตามเวลาที่กำหนดนั้น บริษัทตรวจสอบพบว่าท่านมาปฏิบัติงานสายเกินกว่าเกณฑ์ที่บริษัทกำหนดไว้ตามรายละเอียดข้างต้น</p>`;
+    ? splitThaiParas('ตามที่บริษัทได้กำหนดระเบียบและข้อบังคับในการปฏิบัติงานสำหรับพนักงาน บริษัทตรวจสอบพบว่าท่านมีการลางานบ่อยเกินสมควร ซึ่งส่งผลกระทบต่อการปฏิบัติงานและถือเป็นการไม่ปฏิบัติตามระเบียบของบริษัท')
+    : splitThaiParas('ตามที่บริษัทได้กำหนดระเบียบการปฏิบัติงานให้พนักงานมาปฏิบัติงานตรงตามเวลาที่กำหนดนั้น บริษัทตรวจสอบพบว่าท่านมาปฏิบัติงานสายเกินกว่าเกณฑ์ที่บริษัทกำหนดไว้ตามรายละเอียดข้างต้น');
+  const closingPara = isCustom
+    ? splitThaiParas('บริษัทจึงออกหนังสือเตือนฉบับนี้ เพื่อให้ท่านปรับปรุงพฤติกรรมการทำงาน ปฏิบัติตามระเบียบการลา และปฏิบัติหน้าที่ที่ได้รับมอบหมายอย่างเคร่งครัด')
+      + splitThaiParas('หากท่านยังคงกระทำผิดในลักษณะเดียวกัน หรือกระทำผิดระเบียบของบริษัทอีก บริษัทจะพิจารณาดำเนินการทางวินัยในขั้นต่อไปตามระเบียบและข้อบังคับของบริษัท')
+    : splitThaiParas('บริษัทจึงขอออกหนังสือเตือนฉบับนี้ เพื่อให้ท่านปรับปรุงแก้ไขการปฏิบัติงานให้ถูกต้องตามระเบียบของบริษัท หากท่านยังคงฝ่าฝืนหรือกระทำผิดซ้ำอีก บริษัทอาจพิจารณาดำเนินการทางวินัยในขั้นต่อไปตามระเบียบของบริษัท');
+  const noteHtml = warning.note
+    ? splitThaiParas(`หมายเหตุ: ${warning.note}`).replace('หมายเหตุ:', '<strong>หมายเหตุ:</strong>')
+    : '';
 
   const win = window.open('', '_blank');
   if (!win) { alert('กรุณาอนุญาต popup เพื่อเปิดใบเตือน'); return; }
@@ -5988,7 +6019,7 @@ const printWarning = (emp, warning, settings, branches) => {
       .label { font-weight:600; display:inline-block; min-width:120px; }
       .box { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:14px 18px; margin:16px 0; }
       .warn-reason { font-weight:600; color:#b91c1c; }
-      p { margin-bottom:10px; text-align:justify; }
+      p { margin-bottom:10px; text-align:left; line-height:1.9; }
       .sign { display:flex; justify-content:space-between; margin-top:40px; }
       .sign-box { text-align:center; width:45%; }
       .sign-slot { position:relative; height:52px; }
@@ -6031,9 +6062,9 @@ const printWarning = (emp, warning, settings, branches) => {
 
           ${bodyPara}
 
-          <p>บริษัทจึงขอออกหนังสือเตือนฉบับนี้ เพื่อให้ท่านปรับปรุงแก้ไขการปฏิบัติงานให้ถูกต้องตามระเบียบของบริษัท หากท่านยังคงฝ่าฝืนหรือกระทำผิดซ้ำอีก บริษัทอาจพิจารณาดำเนินการทางวินัยในขั้นต่อไปตามระเบียบของบริษัท</p>
+          ${closingPara}
 
-          ${warning.note ? `<p><strong>หมายเหตุ:</strong> ${warning.note}</p>` : ''}
+          ${noteHtml}
 
           <p>จึงเรียนมาเพื่อทราบและถือปฏิบัติโดยเคร่งครัด</p>
 
@@ -6073,7 +6104,7 @@ const printWarning = (emp, warning, settings, branches) => {
             margin: 0,
             filename: '${fileName}.pdf',
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, letterRendering: true },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
             pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
           };
@@ -6086,11 +6117,19 @@ const printWarning = (emp, warning, settings, branches) => {
             wrap.style.display = prevWrap.display;
             document.body.style.background = prevBodyBg;
           };
-          if (window.html2pdf) {
-            window.html2pdf().set(opt).from(el).save().then(restore).catch(restore);
+          var run = function() {
+            if (window.html2pdf) {
+              window.html2pdf().set(opt).from(el).save().then(restore).catch(restore);
+            } else {
+              restore();
+              alert('กำลังโหลดตัวสร้าง PDF กรุณาลองใหม่อีกครั้ง');
+            }
+          };
+          // รอให้ฟอนต์ Sarabun โหลดเสร็จสมบูรณ์ก่อนแคปหน้าจอ — ป้องกันข้อความภาษาไทยตัดบรรทัดผิดจนซ้อนทับกัน
+          if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(function () { setTimeout(run, 50); }).catch(run);
           } else {
-            restore();
-            alert('กำลังโหลดตัวสร้าง PDF กรุณาลองใหม่อีกครั้ง');
+            setTimeout(run, 300);
           }
         }
       </${S}>
@@ -13884,7 +13923,7 @@ const printCertificate = (emp, settings, req, branches) => {
           margin: 0,
           filename: '${fileName}.pdf',
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, letterRendering: true },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         };
