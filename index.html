@@ -1120,7 +1120,7 @@ const printAssetBorrowForm = (data, settings) => {
     <tr>
       <td style="text-align:center">${i + 1}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${it.code || '-'}</td>
-      <td>${it.name || '-'}</td>
+      <td>${it.name || '-'}${it.brand ? `<div style="font-size:11px;color:#666">ยี่ห้อ: ${it.brand}</div>` : ''}</td>
       <td style="text-align:center">${it.qty || 1}</td>
       <td style="text-align:center">${it.condition || '-'}</td>
     </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;color:#999;padding:14px">ไม่มีรายการทรัพย์สิน</td></tr>`;
@@ -1208,7 +1208,7 @@ const printAssetBorrowForm = (data, settings) => {
 
           <div class="sec-title"><span class="sec-num">2</span> รายละเอียดทรัพย์สินที่ขอยืม</div>
           <table class="assets">
-            <thead><tr><th style="width:34px;text-align:center">ลำดับ</th><th style="width:150px">รหัสทรัพย์สิน</th><th>ชื่อทรัพย์สิน</th><th style="width:60px;text-align:center">จำนวน</th><th style="width:110px;text-align:center">สภาพก่อนยืม</th></tr></thead>
+            <thead><tr><th style="width:34px;text-align:center">ลำดับ</th><th style="width:150px">รหัสทรัพย์สิน</th><th>ชื่อ/ยี่ห้อทรัพย์สิน</th><th style="width:60px;text-align:center">จำนวน</th><th style="width:110px;text-align:center">สภาพก่อนยืม</th></tr></thead>
             <tbody>${rowsHtml}</tbody>
           </table>
 
@@ -3162,7 +3162,7 @@ const Dashboard = ({ }) => {
    EMPLOYEES PAGE
    ============================================================= */
 const EmployeesPage = () => {
-  const { employees, setEmployees, branches, departments, attendance, leaves, setLeaves, leaveTypes, addToast, user } = useApp();
+  const { employees, setEmployees, branches, departments, attendance, leaves, setLeaves, leaveTypes, addToast, user, settings, payroll, kpiRecords, assets } = useApp();
   const [search, setSearch]   = useState('');
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterDep, setFilterDep] = useState('all');
@@ -3225,6 +3225,26 @@ const EmployeesPage = () => {
       api.post('deleteEmployee', { id })
         .catch(err => addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message));
     }
+  };
+
+  // เช็คว่าพนักงานคนนี้มีประวัติผูกอยู่ในส่วนใดของระบบแล้วหรือยัง
+  // (ใช้ตัดสินใจว่าจะให้แก้ "รหัสพนักงาน" ได้หรือไม่ — ถ้ามีประวัติแล้วจะล็อกไว้กันข้อมูลหลุด)
+  const employeeHasHistory = (empId) => {
+    if (!empId) return false;
+    const s = settings || {};
+    return (
+      attendance.some(a => a.employeeId === empId) ||
+      leaves.some(l => l.employeeId === empId) ||
+      (payroll || []).some(p => p.employeeId === empId) ||
+      (kpiRecords || []).some(k => k.employeeId === empId) ||
+      (assets || []).some(a => a.assignedTo === empId) ||
+      (s.otRequests || []).some(o => o.employeeId === empId) ||
+      (s.warnings || []).some(w => w.employeeId === empId) ||
+      (s.certRequests || []).some(c => c.employeeId === empId) ||
+      (s.expenses || []).some(e => e.employeeId === empId) ||
+      (s.tickets || []).some(t => t.requesterId === empId || t.assigneeId === empId) ||
+      (s.subscriptions || []).some(sub => sub.holderId === empId)
+    );
   };
 
   return (
@@ -3357,17 +3377,33 @@ const EmployeesPage = () => {
         open={openAdd}
         onClose={() => setOpenAdd(false)}
         editing={editing}
+        hasHistory={editing ? employeeHasHistory(editing.id) : false}
         onSave={(emp) => {
           if (editing) {
-            setEmployees(employees.map(e => e.id === emp.id ? emp : e));
+            if (emp.id !== editing.id) {
+              // เปลี่ยน "รหัสพนักงาน" (อนุญาตเฉพาะกรณีไม่มีประวัติผูกอยู่แล้ว)
+              // แทนที่ระเบียนเดิมด้วยระเบียนใหม่ทั้งชุด แล้วลบระเบียนรหัสเดิมออกจากฐานข้อมูล กันซ้ำ
+              setEmployees(employees.map(e => e.id === editing.id ? emp : e));
+              if (api.enabled()) {
+                api.post('deleteEmployee', { id: editing.id }).catch(() => {});
+                api.post('saveEmployee', { data: emp })
+                  .catch(err => addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message));
+              }
+            } else {
+              setEmployees(employees.map(e => e.id === emp.id ? emp : e));
+              if (api.enabled()) {
+                api.post('saveEmployee', { data: emp })
+                  .catch(err => addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message));
+              }
+            }
             addToast('success', 'บันทึกข้อมูลเรียบร้อย');
           } else {
             setEmployees([...employees, emp]);
             addToast('success', 'เพิ่มพนักงานเรียบร้อย');
-          }
-          if (api.enabled()) {
-            api.post('saveEmployee', { data: emp })
-              .catch(err => addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message));
+            if (api.enabled()) {
+              api.post('saveEmployee', { data: emp })
+                .catch(err => addToast('error', 'บันทึกไม่สำเร็จ: ' + err.message));
+            }
           }
           setOpenAdd(false);
         }}
@@ -4012,7 +4048,7 @@ const ExportWorkModal = ({ open, onClose, employee, attendance, leaves, leaveTyp
   );
 };
 
-const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
+const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds, hasHistory }) => {
   const { leaveTypes, branches, departments, addToast } = useApp();
   const [form, setForm] = useState({
     id: '', firstName: '', lastName: '', nickname: '',
@@ -4099,6 +4135,13 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
 
   const submit = (e) => {
     e.preventDefault();
+    // ถ้าแก้ไข "รหัสพนักงาน" ให้ต่างจากเดิม ต้องเช็คว่าไม่ซ้ำกับคนอื่น
+    if (editing && form.id !== editing.id) {
+      if ((existingIds || []).some(id => id === form.id && id !== editing.id)) {
+        alert(`รหัสพนักงาน "${form.id}" ถูกใช้แล้ว กรุณาระบุรหัสอื่น`);
+        return;
+      }
+    }
     // ลบ field ที่ว่างออกจาก override
     const cleanOverride = {};
     Object.entries(form.leaveQuotaOverride || {}).forEach(([k, v]) => {
@@ -4160,7 +4203,13 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds }) => {
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">รหัสพนักงาน</label>
-            <Input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} required disabled={!!editing} />
+            <Input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} required disabled={!!editing && hasHistory} />
+            {editing && hasHistory && (
+              <div className="text-xs text-ink-400 mt-1">พนักงานคนนี้มีประวัติการทำงานแล้ว (เข้างาน/เงินเดือน/ฯลฯ) จึงล็อกรหัสไว้เพื่อไม่ให้ข้อมูลที่เชื่อมโยงหลุดหาย</div>
+            )}
+            {editing && !hasHistory && (
+              <div className="text-xs text-amber-600 mt-1">ยังไม่มีประวัติงานผูกกับพนักงานคนนี้ จึงแก้ไขรหัสได้ตามปกติ</div>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">วันเริ่มงาน</label>
@@ -7700,7 +7749,7 @@ const AssetBorrowFormModal = ({ open, onClose, assets, employees, branches, depa
   useEffect(() => {
     if (!open) return;
     if (borrower) {
-      setItems(heldAssets.map(a => ({ assetId: a.id, code: a.code, name: a.name, qty: 1, condition: a.condition || 'ดี' })));
+      setItems(heldAssets.map(a => ({ assetId: a.id, code: a.code, name: a.name, brand: a.brand || '', qty: 1, condition: a.condition || 'ดี' })));
       const mgr = activeEmployees.find(e => e.branchId === borrower.branchId && e.position === 'ผู้จัดการ' && e.id !== borrower.id);
       setApproverId(mgr ? mgr.id : '');
     } else {
@@ -7749,7 +7798,7 @@ const AssetBorrowFormModal = ({ open, onClose, assets, employees, branches, depa
   const addItem = () => {
     const a = (assets || []).find(x => x.id === addAssetId);
     if (!a) return;
-    setItems(prev => [...prev, { assetId: a.id, code: a.code, name: a.name, qty: 1, condition: a.condition || 'ดี' }]);
+    setItems(prev => [...prev, { assetId: a.id, code: a.code, name: a.name, brand: a.brand || '', qty: 1, condition: a.condition || 'ดี' }]);
     setAddAssetId(''); setAssetSearch('');
   };
   const removeItem = (assetId) => setItems(prev => prev.filter(it => it.assetId !== assetId));
@@ -7827,7 +7876,7 @@ const AssetBorrowFormModal = ({ open, onClose, assets, employees, branches, depa
                   <thead>
                     <tr className="bg-ink-50 text-ink-600 text-xs uppercase">
                       <th className="text-left px-3 py-2">รหัส</th>
-                      <th className="text-left px-3 py-2">ชื่อทรัพย์สิน</th>
+                      <th className="text-left px-3 py-2">ชื่อ/ยี่ห้อทรัพย์สิน</th>
                       <th className="text-center px-3 py-2 w-24">จำนวน</th>
                       <th className="text-center px-3 py-2 w-36">สภาพก่อนยืม</th>
                       <th className="w-10"></th>
@@ -7837,7 +7886,10 @@ const AssetBorrowFormModal = ({ open, onClose, assets, employees, branches, depa
                     {items.map(it => (
                       <tr key={it.assetId} className="border-t border-ink-100">
                         <td className="px-3 py-2 font-mono text-xs text-ink-500">{it.code}</td>
-                        <td className="px-3 py-2 text-ink-800">{it.name}</td>
+                        <td className="px-3 py-2 text-ink-800">
+                          {it.name}
+                          {it.brand && <div className="text-xs text-ink-400">ยี่ห้อ: {it.brand}</div>}
+                        </td>
                         <td className="px-3 py-2">
                           <input type="number" min={1} value={it.qty}
                             onChange={(e) => updateItem(it.assetId, { qty: Math.max(1, Number(e.target.value) || 1) })}
@@ -7868,7 +7920,7 @@ const AssetBorrowFormModal = ({ open, onClose, assets, employees, branches, depa
               onChange={(e) => setAssetSearch(e.target.value)} className="md:flex-1" />
             <Select value={addAssetId} onChange={(e) => setAddAssetId(e.target.value)} className="md:w-72">
               <option value="">— เลือกทรัพย์สินที่จะเพิ่ม —</option>
-              {addableAssets.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+              {addableAssets.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}{a.brand ? ` (${a.brand})` : ''}</option>)}
             </Select>
             <Button type="button" variant="outline" icon="plus" onClick={addItem} disabled={!addAssetId}>เพิ่มรายการ</Button>
           </div>
