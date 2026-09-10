@@ -1125,8 +1125,9 @@ const printAssetBorrowForm = (data, settings) => {
       <td style="text-align:center">${it.condition || '-'}</td>
     </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;color:#999;padding:14px">ไม่มีรายการทรัพย์สิน</td></tr>`;
 
+  // เลี่ยงบั๊ก html2canvas ที่ข้อความไทยยาวๆ ตัดขึ้นหลายบรรทัดแล้วซ้อนทับกัน — แบ่งแต่ละข้อที่ยาวเกินไปเป็นประโยคย่อย
   const termsHtml = String(terms || ASSET_BORROW_TERMS_DEFAULT)
-    .split('\n').filter(Boolean).map(line => `<div style="margin-bottom:5px">${line}</div>`).join('');
+    .split('\n').filter(Boolean).map(line => splitThaiParas(line, 120).replace(/<p>/g, '<div style="margin-bottom:5px">').replace(/<\/p>/g, '</div>')).join('');
 
   const win = window.open('', '_blank');
   if (!win) { alert('กรุณาอนุญาต popup เพื่อเปิดแบบฟอร์ม'); return; }
@@ -1164,7 +1165,7 @@ const printAssetBorrowForm = (data, settings) => {
       table.assets td { padding:6px 6px; border-bottom:1px solid #e5e7eb; }
       table.assets tr:nth-child(even) td { background:#f8fafc; }
       .period-box { background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:10px 14px; display:flex; gap:28px; font-size:13px; }
-      .terms-box { background:#fefce8; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#444; text-align:left; }
+      .terms-box { background:#fefce8; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#444; text-align:left; line-height:1.8; }
       .sign { display:flex; justify-content:space-between; margin-top:26px; gap:10px; }
       .sign-box { text-align:center; width:32%; }
       .sign-slot { height:42px; }
