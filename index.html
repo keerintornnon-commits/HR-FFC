@@ -10081,22 +10081,61 @@ const ExportPayrollSummaryModal = ({ open, onClose, payroll, employees, branches
     if (targetRecs.length === 0) { alert('ไม่มีข้อมูลเงินเดือนให้ส่งออก'); return; }
 
     const XLSXlib = window.XLSX;
-    const header = ['รหัส', 'ชื่อ-นามสกุล', 'สาขา', 'รอบ', 'รายได้รวม', 'รายการหัก', 'เงินรับสุทธิ'];
+    // รายการละเอียดทุกช่องรายได้/รายการหัก (ใช้ชื่อเดียวกับในฟอร์มกรอกเงินเดือน เพื่อให้ตรงกัน)
+    const earnFields = [
+      ['baseSalary', 'เงินเดือนพื้นฐาน'],
+      ['overtime',   'ค่าล่วงเวลา (OT)'],
+      ['transport',  'ค่าพาหนะ'],
+      ['bonus',      'ค่าอาหารกลางวัน'],
+      ['otherEarn',  'รายได้อื่นๆ'],
+    ];
+    const deductFields = [
+      ['sso',            'ประกันสังคม'],
+      ['tax',            'ภาษี ณ ที่จ่าย'],
+      ['absenceDeduct',  'หักขาดงาน/มาสาย/ลา'],
+      ['gyos',           'หัก กยศ.'],
+      ['otherDeduct',    'รายการหักอื่นๆ'],
+    ];
+    const header = [
+      'รหัส', 'ชื่อ-นามสกุล', 'สาขา', 'รอบ',
+      ...earnFields.map(f => f[1]), 'รายได้รวม',
+      ...deductFields.map(f => f[1]), 'รายการหักรวม',
+      'เงินรับสุทธิ',
+    ];
     let totalEarn = 0, totalDeduct = 0, totalNet = 0;
+    const colTotals = {}; // รวมแยกรายช่อง สำหรับแถวสรุปท้ายตาราง
+    [...earnFields, ...deductFields].forEach(f => { colTotals[f[0]] = 0; });
+
     const rows = targetRecs.map(p => {
       const emp = employees.find(e => e.id === p.employeeId);
       const br = branches.find(b => b.id === emp?.branchId);
       const c = calcPayroll(p);
       totalEarn += c.earnings; totalDeduct += c.deductions; totalNet += c.net;
+      earnFields.forEach(f => { colTotals[f[0]] += Number(p[f[0]]) || 0; });
+      deductFields.forEach(f => { colTotals[f[0]] += Number(p[f[0]]) || 0; });
       const periodLabel = (p.periodFrom && p.periodTo) ? `${p.periodFrom} ถึง ${p.periodTo}` : p.period;
-      return [emp?.id || p.employeeId, emp ? `${emp.firstName} ${emp.lastName}` : '-', br?.name || '-', periodLabel,
-        c.earnings, c.deductions, c.net];
+      return [
+        emp?.id || p.employeeId, emp ? `${emp.firstName} ${emp.lastName}` : '-', br?.name || '-', periodLabel,
+        ...earnFields.map(f => Number(p[f[0]]) || 0), c.earnings,
+        ...deductFields.map(f => Number(p[f[0]]) || 0), c.deductions,
+        c.net,
+      ];
     });
-    // แถวรวม
-    rows.push(['', '', '', 'รวมทั้งหมด', totalEarn, totalDeduct, totalNet]);
+    // แถวรวมทั้งหมด (รวมแยกทุกช่องรายได้/หัก + ยอดรวมท้ายสุด)
+    rows.push([
+      '', '', '', 'รวมทั้งหมด',
+      ...earnFields.map(f => colTotals[f[0]]), totalEarn,
+      ...deductFields.map(f => colTotals[f[0]]), totalDeduct,
+      totalNet,
+    ]);
 
     const ws = XLSXlib.utils.aoa_to_sheet([header, ...rows]);
-    ws['!cols'] = [{wch:10},{wch:24},{wch:16},{wch:22},{wch:14},{wch:14},{wch:14}];
+    ws['!cols'] = [
+      {wch:10}, {wch:24}, {wch:16}, {wch:22},
+      ...earnFields.map(() => ({wch:16})), {wch:14},
+      ...deductFields.map(() => ({wch:18})), {wch:14},
+      {wch:14},
+    ];
     const wb = XLSXlib.utils.book_new();
     XLSXlib.utils.book_append_sheet(wb, ws, 'สรุปเงินเดือน');
     const brName = branch === 'all' ? 'ทุกสาขา' : (branches.find(b => b.id === branch)?.name || branch);
