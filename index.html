@@ -3925,7 +3925,7 @@ const ExportWorkModal = ({ open, onClose, employee, attendance, leaves, leaveTyp
           l.type === 'sick' && l.medicalCert && l.status === 'approved' &&
           toYMD(l.startDate) <= dYMD && dYMD <= toYMD(l.endDate));
         const certText = hasCert ? 'มีใบรับรองแพทย์' : '';
-        const ded = recordDeduct(emp, a, leavesInRange, leaveTypes);
+        const ded = recordDeduct(employee, a, leavesInRange, leaveTypes);
         const dedText = ded.amount > 0 ? ded.amount : '-';
         const shiftText = (a.source === 'shift' || a.shiftId) ? 'เข้ากะ' : '';
         return [toYMD(a.date), a.checkIn || '-', a.checkOut || '-', info.label, shiftText, certText, dedText, a.leaveType ? (leaveTypes.find(t => t.id === a.leaveType)?.label || '') : ''];
