@@ -569,7 +569,7 @@ const FIELD_MAP = {
     startDate: 'start_date', canApprove: 'can_approve', approvalScope: 'approval_scope',
     canPayroll: 'can_payroll', salaryType: 'salary_type', baseSalary: 'base_salary',
     specialAllowance: 'special_allowance', leaveQuotaOverride: 'leave_quota_override',
-    ssoAmount: 'sso_amount', gyosAmount: 'gyos_amount',
+    ssoAmount: 'sso_amount', gyosAmount: 'gyos_amount', mealAllowance: 'meal_allowance',
     bankName: 'bank_name', bankAccount: 'bank_account', bankAccountName: 'bank_account_name',
     nationalId: 'national_id', address: 'address',
   },
@@ -3194,7 +3194,7 @@ const EmployeesPage = () => {
     if (filtered.length === 0) { addToast('error', 'ไม่มีพนักงานให้ส่งออก'); return; }
     const bName = (id) => (branches.find(b => b.id === id)?.name || id || '-');
     const salaryTypeLabel = (t) => t === 'daily' ? 'รายวัน' : t === 'weekly' ? 'รายสัปดาห์' : 'รายเดือน';
-    const header = ['รหัส','ชื่อ','นามสกุล','ชื่อเล่น','สถานะ','ตำแหน่ง','ฝ่าย','สาขา','เบอร์โทร','อีเมล','เลขบัตรประชาชน','วันเริ่มงาน','ประเภทเงินเดือน','ฐานเงินเดือน','เงินพิเศษ','ประกันสังคม','กยศ','ธนาคาร','เลขบัญชี','ชื่อบัญชี'];
+    const header = ['รหัส','ชื่อ','นามสกุล','ชื่อเล่น','สถานะ','ตำแหน่ง','ฝ่าย','สาขา','เบอร์โทร','อีเมล','เลขบัตรประชาชน','วันเริ่มงาน','ประเภทเงินเดือน','ฐานเงินเดือน','เงินพิเศษ','ค่าเบี้ยเลี้ยง/อาหารกลางวัน(ต่อวัน)','ประกันสังคม','กยศ','ธนาคาร','เลขบัญชี','ชื่อบัญชี'];
     const rows = filtered.map(e => [
       e.id, e.firstName, e.lastName, e.nickname || '',
       e.status === 'inactive' ? 'พ้นสภาพ' : 'ปฏิบัติงาน',
@@ -3202,12 +3202,12 @@ const EmployeesPage = () => {
       e.phone || '', e.email || '', e.nationalId || '',
       e.startDate || e.hireDate || '',
       salaryTypeLabel(e.salaryType),
-      e.baseSalary || '', e.specialAllowance || '',
+      e.baseSalary || '', e.specialAllowance || '', e.mealAllowance || '',
       e.ssoAmount || '', e.gyosAmount || '',
       e.bankName || '', e.bankAccount || '', e.bankAccountName || '',
     ]);
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    ws['!cols'] = [{wch:10},{wch:14},{wch:14},{wch:10},{wch:10},{wch:16},{wch:16},{wch:16},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:16},{wch:14},{wch:18}];
+    ws['!cols'] = [{wch:10},{wch:14},{wch:14},{wch:10},{wch:10},{wch:16},{wch:16},{wch:16},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:12},{wch:10},{wch:14},{wch:10},{wch:10},{wch:16},{wch:14},{wch:18}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'พนักงาน');
     const parts = [];
@@ -4060,7 +4060,7 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds, hasHis
     email: '', phone: '', startDate: new Date().toISOString().split('T')[0],
     status: 'active', canApprove: false, approvalScope: 'none', canPayroll: false,
     salaryType: 'monthly', baseSalary: '', specialAllowance: '',
-    ssoAmount: '', gyosAmount: '',
+    ssoAmount: '', gyosAmount: '', mealAllowance: '',
     bankName: '', bankAccount: '', bankAccountName: '',
     nationalId: '', address: '',
     leaveQuotaOverride: {}, photo: '',
@@ -4322,6 +4322,17 @@ const EmployeeFormModal = ({ open, onClose, editing, onSave, existingIds, hasHis
               เงินเดือน/วัน = {fmtMoney(Number(form.baseSalary) / 6)} บาท (ฐาน ÷ 6 วันทำงาน/สัปดาห์)
             </div>
           )}
+
+          {/* ค่าเบี้ยเลี้ยง/อาหารกลางวัน — คิดเป็นรายวัน ดึงไปคำนวณอัตโนมัติตอนทำเงินเดือน */}
+          <div className="mt-3 pt-3 border-t border-flow-100">
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">ค่าเบี้ยเลี้ยง/อาหารกลางวัน (ต่อวัน)</label>
+            <Input type="number" min={0} step="0.01" value={form.mealAllowance ?? ''}
+              onChange={(e) => setForm({ ...form, mealAllowance: e.target.value })}
+              placeholder="เช่น 50" />
+            <p className="text-[11px] text-ink-400 mt-1">
+              จ่ายเฉพาะวันที่มาทำงานและไม่มีการลา (ลาเต็มวัน/ครึ่งวัน/รายชั่วโมง วันนั้นจะไม่ได้รับ) — ระบบคำนวณให้อัตโนมัติตอนทำเงินเดือน
+            </p>
+          </div>
 
           {/* รายการหักประจำ — ดึงไปใช้ตอนทำเงินเดือนอัตโนมัติ */}
           <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-flow-100">
@@ -9205,12 +9216,33 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
     .filter(l => (l.period || 'full') === 'full' && l.type !== 'wfh' && l.type !== 'offsite')
     .map(l => toYMD(l.startDate));
 
+  // ===== ค่าเบี้ยเลี้ยง/อาหารกลางวัน =====
+  // จ่ายเฉพาะวันทำงาน (ไม่นับวันหยุดประจำสัปดาห์/วันหยุดบริษัท) ที่ "ไม่มีการลา" เลย
+  // ไม่ว่าจะลาประเภทใด (รวมถึงลา WFH/นอกสถานที่) หรือลาเต็มวัน/ครึ่งวัน/รายชั่วโมง ก็ตัดสิทธิ์ของวันนั้นทั้งวัน
+  // ** หมายเหตุ: ใช้ monthLeaves แบบไม่กรองประเภท (ไม่เว้น wfh/offsite) ต่างจากการคำนวณหักเงินเดือนด้านบนที่ยกเว้น WFH ให้ไม่ถูกหัก **
+  const mealAllowancePerDay = Number(emp.mealAllowance) || 0;
+  const leaveAffectedDates = new Set();
+  monthLeaves.forEach(l => {
+    const d = new Date(toYMD(l.startDate) + 'T00:00:00');
+    const endD = new Date(toYMD(l.endDate) + 'T00:00:00');
+    while (d <= endD) {
+      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (inRange(ymd)) leaveAffectedDates.add(ymd);
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  const mealAllowanceDays = Math.max(0, rangeDays - leaveAffectedDates.size);
+  const mealAllowanceTotal = Math.round(mealAllowancePerDay * mealAllowanceDays * 100) / 100;
+
   return {
     salaryType, perDay, perHour, workedDays,
     attendedDays,        // วันมาทำงานจริง (ไม่นับอาทิตย์/ลาเต็มวัน)
     rangeDays,           // วันทำงานทั้งหมดในรอบ (ไม่นับอาทิตย์)
     baseSalary: Math.round(baseSalary * 100) / 100,
     special,
+    mealAllowancePerDay,
+    mealAllowanceDays,   // จำนวนวันที่ได้รับค่าเบี้ยเลี้ยง (ไม่มีวันลาเลย)
+    mealAllowanceTotal,  // ยอดค่าเบี้ยเลี้ยง/อาหารกลางวันรวมของรอบนี้
     lateFine: Math.round(lateFine * 100) / 100,
     lateDetails,         // [{date, minutes, fine}]
     leaveDeduct: Math.round(leaveDeduct * 100) / 100,
@@ -9297,7 +9329,7 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
             ? old.overtime
             : (otTotal > 0 ? otTotal : ''),
           transport: old?.transport ?? '',
-          bonus: old?.bonus ?? '',
+          bonus: old?.bonus ?? (r.mealAllowanceTotal || ''),
           otherEarn: old?.otherEarn ?? (r.special || ''),
           absenceDeduct: Math.round((r.lateFine + r.leaveDeduct) * 100) / 100,
           sso: old?.sso ?? (emp.ssoAmount || ''),
@@ -9311,6 +9343,8 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
             lateFine: r.lateFine, lateDetails: r.lateDetails,
             leaveDeduct: r.leaveDeduct, leaveDetails: r.leaveDetails,
             fullLeaveDates: r.fullLeaveDates, absentDays: r.absentDays,
+            mealAllowancePerDay: r.mealAllowancePerDay, mealAllowanceDays: r.mealAllowanceDays,
+            mealAllowanceTotal: r.mealAllowanceTotal,
             otTotal,
           },
         };
@@ -10379,6 +10413,7 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
       ...f,
       baseSalary: r.baseSalary,
       otherEarn: r.special || '',
+      bonus: (f.bonus !== '' && f.bonus != null) ? f.bonus : (r.mealAllowanceTotal || ''),
       overtime: otTotal > 0 ? otTotal : (f.overtime || ''),   // รวม OT อนุมัติ → ค่าล่วงเวลา
       absenceDeduct: Math.round((r.lateFine + r.leaveDeduct) * 100) / 100,
       // ดึงรายการหักประจำจาก profile พนักงาน (ถ้ายังไม่กรอกในฟอร์ม)
@@ -10391,6 +10426,8 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
         lateFine: r.lateFine, lateDetails: r.lateDetails,
         leaveDeduct: r.leaveDeduct, leaveDetails: r.leaveDetails,
         fullLeaveDates: r.fullLeaveDates, absentDays: r.absentDays,
+        mealAllowancePerDay: r.mealAllowancePerDay, mealAllowanceDays: r.mealAllowanceDays,
+        mealAllowanceTotal: r.mealAllowanceTotal,
         otTotal,
       },
     }));
@@ -10517,6 +10554,12 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
               )}
               <div className="flex justify-between"><span className="text-ink-600">ฐานเงินเดือน</span><span className="font-medium text-emerald-700">{fmtMoney(autoInfo.baseSalary)} บาท</span></div>
               {autoInfo.special > 0 && <div className="flex justify-between"><span className="text-ink-600">เงินพิเศษ</span><span className="font-medium text-emerald-700">{fmtMoney(autoInfo.special)} บาท</span></div>}
+              {autoInfo.mealAllowancePerDay > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-ink-600">ค่าเบี้ยเลี้ยง/อาหารกลางวัน ({autoInfo.mealAllowanceDays} วัน)</span>
+                  <span className="font-medium text-emerald-700">{fmtMoney(autoInfo.mealAllowanceTotal)} บาท</span>
+                </div>
+              )}
               {autoInfo.lateFine > 0 && (
                 <div className="flex justify-between"><span className="text-ink-600">หักมาสาย ({autoInfo.lateDetails.length} ครั้ง)</span><span className="font-medium text-red-600">-{fmtMoney(autoInfo.lateFine)} บาท</span></div>
               )}
