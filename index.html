@@ -593,6 +593,7 @@ const FIELD_MAP = {
     employeeId: 'employee_id', periodFrom: 'period_from', periodTo: 'period_to',
     payDate: 'pay_date', baseSalary: 'base_salary', otherEarn: 'other_earn',
     absenceDeduct: 'absence_deduct', otherDeduct: 'other_deduct',
+    otherDeductNote: 'other_deduct_note',
   },
   kpi_criteria: { targetOverall: 'target_overall', branchType: 'branch_type' },
   kpi_records: {
@@ -9336,6 +9337,7 @@ const BatchPayrollModal = ({ open, onClose, employees, branches, attendance, lea
           gyos: old?.gyos ?? (emp.gyosAmount || ''),
           tax: old?.tax ?? '',
           otherDeduct: old?.otherDeduct ?? '',
+          otherDeductNote: old?.otherDeductNote ?? '',
           note: old?.note ?? '',
           breakdown: {
             salaryType: r.salaryType, perDay: r.perDay, workedDays: r.workedDays,
@@ -10364,7 +10366,7 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
         periodFrom: dp + '-01',
         periodTo: `${dp}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`,
         baseSalary: '', overtime: '', transport: '', bonus: '', otherEarn: '',
-        sso: '', tax: '', absenceDeduct: '', gyos: '', otherDeduct: '',
+        sso: '', tax: '', absenceDeduct: '', gyos: '', otherDeduct: '', otherDeductNote: '',
         payDate: new Date().toISOString().split('T')[0], note: '',
       });
     }
@@ -10608,10 +10610,16 @@ const PayrollFormModal = ({ open, onClose, editing, onSave, employees, branches,
             </h4>
             <div className="space-y-2.5">
               {deductFields.map(([key, label]) => (
-                <div key={key} className="flex items-center gap-2">
-                  <label className="text-xs text-ink-600 flex-1">{label}</label>
-                  <Input type="number" step="0.01" className="w-32 text-right" value={form[key] || ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
-                </div>
+                <React.Fragment key={key}>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-ink-600 flex-1">{label}</label>
+                    <Input type="number" step="0.01" className="w-32 text-right" value={form[key] || ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                  </div>
+                  {key === 'otherDeduct' && (
+                    <Input type="text" maxLength={100} placeholder="ระบุว่าหักอะไร เช่น ค่าเสียหายอุปกรณ์ (แสดงในสลิป)"
+                      value={form.otherDeductNote || ''} onChange={(e) => setForm({ ...form, otherDeductNote: e.target.value })} />
+                  )}
+                </React.Fragment>
               ))}
               <div className="flex items-center justify-between pt-2 border-t border-red-200">
                 <span className="text-sm font-medium text-ink-700">รวมรายการหัก</span>
@@ -10668,7 +10676,7 @@ const buildSlipInner = (record, employees, branches, settings) => {
     deductRows.push(['หักขาดงาน/มาสาย/ลา', 'ABSENCE/LATE/LEAVE', record.absenceDeduct]);
   }
   deductRows.push(['หัก กยศ.', 'STUDENT LOAN', record.gyos]);
-  deductRows.push(['รายการหักอื่นๆ', 'OTHER', record.otherDeduct]);
+  deductRows.push([record.otherDeductNote ? `รายการหักอื่นๆ (${String(record.otherDeductNote).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')})` : 'รายการหักอื่นๆ', 'OTHER', record.otherDeduct]);
   deductRows = deductRows.filter(r => Number(r[2]) > 0);
 
   const row = (th, en, val, isDeduct) =>
@@ -10822,7 +10830,7 @@ const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
     deductRows.push(['หักขาดงาน/มาสาย/ลา', 'ABSENCE/LATE/LEAVE', record.absenceDeduct]);
   }
   deductRows.push(['หัก กยศ.', 'STUDENT LOAN', record.gyos]);
-  deductRows.push(['รายการหักอื่นๆ', 'OTHER', record.otherDeduct]);
+  deductRows.push([record.otherDeductNote ? `รายการหักอื่นๆ (${record.otherDeductNote})` : 'รายการหักอื่นๆ', 'OTHER', record.otherDeduct]);
   deductRows = deductRows.filter(r => Number(r[2]) > 0);
 
   const doPrint = () => {
