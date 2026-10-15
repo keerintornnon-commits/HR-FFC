@@ -9136,7 +9136,21 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
 
   // ===== หักขาดงาน (จากบันทึกการเข้างาน status='absent') =====
   // วันที่ขาดงานจริงจากการสแกนนิ้ว (ไม่นับวันอาทิตย์ — กรองไว้แล้วตอนสร้าง monthAtt)
-  const absentAttDays = monthAtt.filter(a => a.status === 'absent').length;
+  // ตัดวันที่ "มีใบลา/รายการลาอนุมัติแล้วครอบอยู่" ออก เพื่อไม่หักซ้ำ 2 เด้ง
+  // (เช่น นำเข้าสแกนเป็น 'ขาด' ก่อน แล้วภายหลังมีรายการลาประเภทขาดงานของวันเดียวกัน)
+  const leaveCoveredDates = new Set();
+  monthLeaves.forEach(l => {
+    const d = new Date(toYMD(l.startDate) + 'T00:00:00');
+    const endD = new Date(toYMD(l.endDate) + 'T00:00:00');
+    while (d <= endD) {
+      leaveCoveredDates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  const absentAttDates = [...new Set(monthAtt
+    .filter(a => a.status === 'absent' && !leaveCoveredDates.has(toYMD(a.date)))
+    .map(a => toYMD(a.date)))].sort();
+  const absentAttDays = absentAttDates.length;
   const absentAttFine = perDay * absentAttDays;
 
   // ===== หักการลา =====
@@ -9208,7 +9222,7 @@ const computeAutoPayroll = (emp, range, attendance, leaves, leaveTypes, settings
 
   // เพิ่มขาดงานจากการสแกนนิ้ว (status='absent') เข้าในรายการหัก
   if (absentAttDays > 0) {
-    leaveDetails.push({ type: 'absent', label: 'ขาดงาน', days: absentAttDays, deduct: absentAttFine, reason: 'ขาดงาน (จากบันทึกเข้างาน) — หักเต็มวัน' });
+    leaveDetails.push({ type: 'absent', label: 'ขาดงาน', days: absentAttDays, deduct: absentAttFine, reason: 'ขาดงาน (จากบันทึกเข้างาน) — หักเต็มวัน', dates: absentAttDates });
     leaveDeduct += absentAttFine;
   }
 
@@ -10691,7 +10705,7 @@ const buildSlipInner = (record, employees, branches, settings) => {
   if (bd) {
     const lateList = (bd.lateDetails || []).map(x => dShort(x.date)).join(', ');
     const leaveList = (bd.leaveDetails || []).filter(d => d.type !== 'absent').map(d => `${dShort(d.date)}${d.label.includes('(')?d.label.slice(d.label.indexOf('(')):''}`).join(', ');
-    const absentList = (bd.leaveDetails || []).filter(d => d.type === 'absent' && d.date).map(d => dShort(d.date)).join(', ');
+    const absentList = (bd.leaveDetails || []).filter(d => d.type === 'absent' && (d.date || (d.dates && d.dates.length))).flatMap(d => d.dates && d.dates.length ? d.dates : [d.date]).map(x => dShort(x)).join(', ');
     workSummary = `
       <div style="padding:5px 14px;border-top:1px solid #E2E8F0;background:#F8FAFC">
         <div style="display:flex;gap:16px;font-size:10px;color:#1E293B;flex-wrap:wrap">
@@ -10933,7 +10947,7 @@ const PayslipModal = ({ record, onClose, employees, branches, settings }) => {
             const dShort = (ymd) => { const d = new Date(ymd + 'T00:00:00'); return isNaN(d) ? ymd : `${d.getDate()}/${d.getMonth()+1}`; };
             const lateList = (bd.lateDetails || []).map(x => dShort(x.date)).join(', ');
             const leaveList = (bd.leaveDetails || []).filter(d => d.type !== 'absent').map(d => `${dShort(d.date)}${d.label.includes('(') ? d.label.slice(d.label.indexOf('(')) : ''}`).join(', ');
-            const absentList = (bd.leaveDetails || []).filter(d => d.type === 'absent' && d.date).map(d => dShort(d.date)).join(', ');
+            const absentList = (bd.leaveDetails || []).filter(d => d.type === 'absent' && (d.date || (d.dates && d.dates.length))).flatMap(d => d.dates && d.dates.length ? d.dates : [d.date]).map(x => dShort(x)).join(', ');
             return (
               <div style={{ padding: '8px 14px', borderTop: '1px solid #E2E8F0', background: '#F8FAFC' }}>
                 <div style={{ display: 'flex', gap: 16, fontSize: 11, color: '#1E293B', flexWrap: 'wrap' }}>
