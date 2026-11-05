@@ -2101,7 +2101,8 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
   const myEmp = employees.find(e => e.id === user.empId);
   const scope = myEmp?.approvalScope || (myEmp?.canApprove ? 'manager' : 'none');
   const isRegionalManager = scope === 'regional';   // ผู้จัดการภาค
-  const canSeePayroll = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
+  // Role ผู้จัดการ: ดูเงินเดือนของภาค/สาขาตัวเองได้ (แต่ไม่เห็นโมดูลใบเตือน)
+  const canSeePayroll = user.role === 'admin' || user.role === 'hr' || user.role === 'manager' || !!myEmp?.canPayroll;
   const isBasicEmp = user.role === 'employee' && scope === 'none';
   const isITStaff = !!(myEmp && myEmp.department === 'ฝ่าย IT');
   const menu = [
@@ -2131,6 +2132,8 @@ const Sidebar = ({ current, onChange, user, onLogout, mobileOpen, onCloseMobile 
   const visible = menu.filter((m) => {
     // เงินเดือน: เฉพาะ admin/hr/ผู้มีสิทธิ์ canPayroll (Manager/บัญชี)
     if (m.id === 'payroll' && !canSeePayroll) return false;
+    // ใบเตือน: Role ผู้จัดการมองไม่เห็นโมดูลนี้
+    if (m.id === 'warnings' && user.role === 'manager') return false;
     // ซอฟต์แวร์ & AI: เฉพาะ admin/hr/พนักงานฝ่าย IT
     if (m.id === 'subscriptions' && !(user.role === 'admin' || user.role === 'hr' || isITStaff)) return false;
     if (user.role === 'employee') {
@@ -2377,7 +2380,7 @@ const Topbar = ({ title, subtitle, action }) => {
     }
 
     // ใบเตือน: พนักงานมาสายเกินเกณฑ์ (แจ้งผู้จัดการภาค/hr/admin)
-    if (canApprove) {
+    if (canApprove && user.role !== 'manager') {
       const threshold = (settings && settings.warningConfig && settings.warningConfig.lateThreshold) || 6;
       const warnings = (settings && settings.warnings) || [];
       const thisMonth = new Date().toISOString().slice(0, 7);
@@ -9703,8 +9706,9 @@ const PayrollPage = () => {
   const payrollCycles = (settings && settings.payrollCycles) || [];
 
   const myEmp = employees.find(e => e.id === user.empId);
-  const hasPayrollAccess = user.role === 'admin' || user.role === 'hr' || !!myEmp?.canPayroll;
-  const canEdit = hasPayrollAccess;
+  const hasPayrollAccess = user.role === 'admin' || user.role === 'hr' || user.role === 'manager' || !!myEmp?.canPayroll;
+  // Role ผู้จัดการ = ดูอย่างเดียว (เห็นเฉพาะเงินเดือนของภาค/สาขาตัวเอง) ไม่มีสิทธิ์เพิ่ม/แก้ไข/ลบ/คำนวณ
+  const canEdit = user.role === 'admin' || user.role === 'hr' || (user.role !== 'manager' && !!myEmp?.canPayroll);
 
   // ตรวจว่าค้นวันที่เก่ากว่าข้อมูลที่โหลด (6 เดือนล่าสุด) ไหม
   const sixMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10); })();
@@ -17041,13 +17045,13 @@ const App = () => {
           {page === 'shifts'     && <ShiftsPage />}
           {page === 'leaves'     && <LeavesPage />}
           {page === 'ot'         && <OTPage />}
-          {page === 'warnings'   && <WarningPage />}
+          {page === 'warnings'   && user.role !== 'manager' && <WarningPage />}
           {page === 'calendar'   && <TeamCalendarPage />}
           {page === 'myinfo'     && <MyInfoPage />}
           {page === 'assets'     && <AssetsPage />}
           {page === 'tickets'    && <TicketsPage />}
           {page === 'subscriptions' && <SubscriptionsPage />}
-          {page === 'payroll'    && <PayrollPage />}
+          {page === 'payroll'    && (user.role === 'admin' || user.role === 'hr' || user.role === 'manager' || !!_meEmp?.canPayroll) && <PayrollPage />}
           {page === 'kpi'        && <KpiPage />}
           {page === 'expenses'   && <ExpensesPage />}
           {page === 'policies'   && <PoliciesPage />}
